@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aimai-coffeebench-ocl-adapter"
+version = "0.1.0"
+description = "AiMai OCL adapter for the official CoffeeBench benchmark"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+coffeebench = [
+    "coffeebench @ git+https://github.com/SakanaAI/CoffeeBench.git",
+]
+
+[project.scripts]
+aimai-coffeebench-probe = "coffeebench_ocl.phase0_probe:main"
+aimai-coffeebench-run = "coffeebench_ocl.phase1:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["coffeebench_ocl*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
