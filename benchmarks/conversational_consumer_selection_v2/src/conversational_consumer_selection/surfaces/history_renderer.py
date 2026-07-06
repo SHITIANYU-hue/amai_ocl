@@ -24,7 +24,12 @@ def render_platform_action_surface(
     include_signal_tag: bool = False,
     annotate_entities: bool = False,
 ) -> str:
-    """Render one platform-side utterance from a structured action."""
+    """Render one platform-side utterance from a structured action.
+
+    Inputs are a structured platform action, optional offer metadata, and debug
+    rendering flags. The output is natural-language text for the clerk side of
+    the transcript.
+    """
 
     offer_lookup = _offer_lookup(offers)
 
@@ -66,7 +71,11 @@ def render_platform_action_surface(
 
 
 def render_platform_action_signal_tag(action: SelectionAction) -> str:
-    """Render a compact debug-only platform action tag."""
+    """Render a compact debug-only platform action tag.
+
+    Input is a `SelectionAction`; output is a human-readable marker used in
+    demos, not a hidden action consumed by the environment.
+    """
 
     if action.action_type.value == "ask_clarification":
         return f"### ASK_CLARIFICATION(slot={action.slot}) ###"
@@ -90,7 +99,12 @@ def render_history_transcript(
     offers: Sequence[Offer] | Mapping[str, Offer] | None = None,
     annotate_entities: bool = False,
 ) -> str:
-    """Render a structured history as a readable transcript."""
+    """Render a structured history as a readable transcript.
+
+    Inputs are prior `HistoryEntry` objects plus optional offer metadata and
+    debug flags. The output is a multi-line transcript alternating platform and
+    buyer messages.
+    """
 
     if not history:
         return "(no prior turns)"
@@ -121,6 +135,8 @@ def render_history_transcript(
 
 
 def _offer_lookup(offers: Sequence[Offer] | Mapping[str, Offer] | None) -> dict[str, Offer]:
+    """Normalize optional offer metadata into an offer-id lookup."""
+
     if offers is None:
         return {}
     if isinstance(offers, MappingABC):
@@ -134,6 +150,8 @@ def _offer_reference(
     *,
     annotate_entities: bool,
 ) -> str:
+    """Render one offer reference with title/price or a debug anchor."""
+
     if annotate_entities:
         return _offer_anchor(offer, fallback_offer_id)
     if offer is None:
@@ -144,6 +162,8 @@ def _offer_reference(
 
 
 def _offer_anchor(offer: Offer | None, fallback_offer_id: str) -> str:
+    """Return an annotated product/price token for transcript debugging."""
+
     if offer is None:
         return f"[[PRODUCT:{fallback_offer_id}]]"
     if offer.title:
@@ -155,16 +175,22 @@ def _offer_anchor(offer: Offer | None, fallback_offer_id: str) -> str:
 
 
 def _slot_reference(slot: str, *, annotate_entities: bool) -> str:
+    """Render one slot name as readable text or a debug slot anchor."""
+
     if annotate_entities:
         return _slot_anchor(slot)
     return slot.replace("_", " ")
 
 
 def _slot_anchor(slot: str) -> str:
+    """Return the debug annotation token for a slot."""
+
     return f"[[SLOT:{slot}]]"
 
 
 def _clarification_prompt(slot: str, *, annotate_entities: bool) -> str:
+    """Render the clerk's clarification question for one slot."""
+
     normalized = normalize_clarification_slot(slot)
     if normalized == CLARIFICATION_BUDGET_MAX:
         return "I can narrow this down quickly, but I need to know your budget ceiling first."

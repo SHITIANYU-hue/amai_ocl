@@ -29,6 +29,12 @@ class OpenAIDialogueModel:
     max_tokens: int | None = 120
 
     def __post_init__(self) -> None:
+        """Initialize the OpenAI client for surface-only dialogue generation.
+
+        Inputs are the dataclass configuration fields. The method resolves the
+        API key, constructs an OpenAI-compatible client, and returns nothing.
+        """
+
         try:
             import openai  # noqa: PLC0415
         except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
@@ -56,6 +62,8 @@ class OpenAIDialogueModel:
         )
 
     def generate(self, *, system_prompt: str, user_prompt: str) -> str:
+        """Generate one visible utterance from a system/user prompt pair."""
+
         request: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -96,6 +104,13 @@ class DialogueDecorator:
         base_text: str,
         history_text: str = "(no prior turns)",
     ) -> str:
+        """Decorate an opening utterance while preserving its semantic role.
+
+        Inputs are the speaker label, deterministic fallback text, and current
+        history text. The output is either model-generated visible dialogue or
+        `base_text` when no model is configured.
+        """
+
         if self.model is None:
             return base_text
 
@@ -149,6 +164,13 @@ class DialogueDecorator:
         offers: Sequence[Offer],
         history_text: str,
     ) -> str:
+        """Decorate a platform/clerk action as natural-language dialogue.
+
+        Inputs are the fallback text, structured action, offer metadata, and
+        prior transcript. The output is a buyer-facing utterance that should
+        preserve the action's product IDs and facts.
+        """
+
         if self.model is None:
             return base_text
 
@@ -184,6 +206,13 @@ class DialogueDecorator:
         offers: Sequence[Offer],
         history_text: str,
     ) -> str:
+        """Decorate a buyer simulator response as natural-language dialogue.
+
+        Inputs are the fallback text, triggering platform action, structured
+        simulator response, platform utterance, offer metadata, and transcript.
+        The output is buyer-facing text with the same decision stance.
+        """
+
         if self.model is None:
             return base_text
 
@@ -216,6 +245,8 @@ class DialogueDecorator:
 
 
 def _serialize_offer(offer: Offer) -> dict[str, Any]:
+    """Convert an offer into the compact object used in dialogue prompts."""
+
     return {
         "offer_id": offer.offer_id,
         "title": offer.title,
@@ -226,6 +257,8 @@ def _serialize_offer(offer: Offer) -> dict[str, Any]:
 
 
 def _clean_utterance(text: str, *, fallback: str) -> str:
+    """Strip model-output wrappers and return fallback text if empty."""
+
     cleaned = text.strip()
     if not cleaned:
         return fallback
@@ -238,6 +271,8 @@ def _clean_utterance(text: str, *, fallback: str) -> str:
 
 
 def _infer_opening_request(base_text: str) -> dict[str, Any]:
+    """Infer a minimal request object from deterministic opening text."""
+
     lowered = base_text.lower()
     request: dict[str, Any] = {}
     if "headphone" in lowered:
@@ -254,6 +289,8 @@ def _platform_semantic_frame(
     action: SelectionAction,
     offers: Sequence[Offer],
 ) -> dict[str, Any]:
+    """Build the semantic frame passed to a platform dialogue model."""
+
     offer_lookup = {offer.offer_id: offer for offer in offers}
     frame: dict[str, Any] = {
         "speaker": "platform",
@@ -278,6 +315,8 @@ def _buyer_semantic_frame(
     response: Mapping[str, Any],
     offers: Sequence[Offer],
 ) -> dict[str, Any]:
+    """Build the semantic frame passed to a buyer dialogue model."""
+
     offer_lookup = {offer.offer_id: offer for offer in offers}
     frame: dict[str, Any] = {
         "speaker": "buyer",

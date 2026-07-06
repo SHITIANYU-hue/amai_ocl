@@ -16,26 +16,30 @@ from conversational_consumer_selection import (
     CLARIFICATION_BUDGET_MAX,
     CLARIFICATION_MUST_HAVE_PREFIX,
     CLARIFICATION_PREFERENCE_PREFIX,
-    DemoSingleAgentModel,
-    LLMPlatformAgent,
+    DemoClerkAgentModel,
+    DialogueActor,
+    LLMClerkAgent,
     GreedySelectionPolicy,
-    OpenAISingleAgentModel,
+    OpenAIClerkAgentModel,
     Offer,
-    PromptBasedSingleAgent,
     RuleBasedUserSimulator,
     SelectionAction,
     SelectionTask,
     UserGoal,
+    build_buyer_dialogue_prompt,
     build_episode_record,
+    build_seller_dialogue_prompt,
     make_default_task,
     make_v0_demo_task,
-    make_v1_direct_intent_task,
-    make_v1_partial_intent_task,
+    make_v2_direct_intent_task,
     make_v2_hidden_intent_task,
+    make_v2_partial_intent_task,
+    parse_dual_channel_output,
     render_buyer_response,
     render_history_transcript,
     run_benchmark,
     summarize_records,
+    TransactionDialogueEnv,
 )
 
 
@@ -181,16 +185,16 @@ class RuleBasedUserSimulatorTests(unittest.TestCase):
         self.assertEqual({}, task.initial_revealed_context["must_have"])
         self.assertEqual({}, task.initial_revealed_context["preference_weights"])
 
-    def test_v1_direct_intent_task_reveals_full_structured_intent(self) -> None:
-        task = make_v1_direct_intent_task()
+    def test_v2_direct_intent_task_reveals_full_structured_intent(self) -> None:
+        task = make_v2_direct_intent_task()
 
         self.assertEqual({"category": "headphones"}, task.initial_user_request)
         self.assertEqual(100.0, task.initial_revealed_context["budget_max"])
         self.assertEqual(dict(task.user_goal.must_have), task.initial_revealed_context["must_have"])
         self.assertEqual(dict(task.preference_weights), task.initial_revealed_context["preference_weights"])
 
-    def test_v1_partial_intent_task_reveals_budget_but_not_preferences(self) -> None:
-        task = make_v1_partial_intent_task()
+    def test_v2_partial_intent_task_reveals_budget_but_not_preferences(self) -> None:
+        task = make_v2_partial_intent_task()
 
         self.assertEqual({"category": "headphones"}, task.initial_user_request)
         self.assertEqual(100.0, task.initial_revealed_context["budget_max"])
@@ -372,7 +376,7 @@ class MetricsTests(unittest.TestCase):
                     "escalated": False,
                     "termination_reason": "commit_accepted",
                 },
-                arm="single",
+                arm="clerk",
                 setting="direct_intent",
             ),
             build_episode_record(
@@ -391,7 +395,7 @@ class MetricsTests(unittest.TestCase):
                     "escalated": False,
                     "termination_reason": "timeout",
                 },
-                arm="single",
+                arm="clerk",
                 setting="direct_intent",
             ),
         ]
@@ -400,7 +404,7 @@ class MetricsTests(unittest.TestCase):
 
         self.assertEqual(1, len(summary))
         row = summary[0]
-        self.assertEqual("single", row["arm"])
+        self.assertEqual("clerk", row["arm"])
         self.assertEqual("direct_intent", row["setting"])
         self.assertEqual(2, row["episodes"])
         self.assertAlmostEqual(0.5, row["commit_success_rate"])
@@ -419,7 +423,7 @@ class MetricsTests(unittest.TestCase):
             make_default_task(level=BenchmarkLevel.PARTIAL_INTENT),
         ]
         policies = {
-            "single": GreedySelectionPolicy(clarify_missing_preferences=False),
+            "clerk": GreedySelectionPolicy(clarify_missing_preferences=False),
             "clarify_then_commit": GreedySelectionPolicy(clarify_missing_preferences=True),
         }
 
@@ -434,37 +438,37 @@ class MetricsTests(unittest.TestCase):
             self.assertTrue((output_path / "summary.csv").exists())
 
 
-class PromptSingleAgentTests(unittest.TestCase):
-    def test_platform_agent_context_omits_user_dialogue_by_default(self) -> None:
+class PromptClerkAgentTests(unittest.TestCase):
+    def test_clerk_agent_context_omits_user_dialogue_by_default(self) -> None:
         env = BestOfferSelectionEnv()
         observation, _ = env.reset(task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT))
 
-        agent = LLMPlatformAgent(model=DemoSingleAgentModel())
+        agent = LLMClerkAgent(model=DemoClerkAgentModel())
         trace = agent.decide(observation)
 
         self.assertNotIn("user_utterance_history", trace.context)
 
-    def test_prompt_single_agent_returns_valid_action(self) -> None:
+    def test_prompt_clerk_agent_returns_valid_action(self) -> None:
         env = BestOfferSelectionEnv()
         observation, _ = env.reset(task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT))
 
-        agent = PromptBasedSingleAgent(model=DemoSingleAgentModel())
+        agent = LLMClerkAgent(model=DemoClerkAgentModel())
         trace = agent.decide(observation)
 
         self.assertEqual("ask_clarification", trace.action.action_type.value)
         self.assertIn(trace.action.slot, observation.available_clarification_slots)
         self.assertFalse(trace.used_fallback)
 
-    def test_demo_platform_agent_avoids_non_discriminative_constraint_question(self) -> None:
+    def test_demo_clerk_agent_avoids_non_discriminative_constraint_question(self) -> None:
         env = BestOfferSelectionEnv()
         observation, _ = env.reset(task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT))
 
-        agent = PromptBasedSingleAgent(model=DemoSingleAgentModel())
+        agent = LLMClerkAgent(model=DemoClerkAgentModel())
         trace = agent.decide(observation)
 
         self.assertNotEqual(f"{CLARIFICATION_MUST_HAVE_PREFIX}foldable", trace.action.slot)
 
-    def test_prompt_single_agent_falls_back_to_escalate_on_invalid_output(self) -> None:
+    def test_prompt_clerk_agent_falls_back_to_escalate_on_invalid_output(self) -> None:
         class InvalidModel:
             def generate(self, *, system_prompt: str, user_prompt: str) -> str:
                 del system_prompt, user_prompt
@@ -473,7 +477,7 @@ class PromptSingleAgentTests(unittest.TestCase):
         env = BestOfferSelectionEnv()
         observation, _ = env.reset(task=make_default_task(level=BenchmarkLevel.DIRECT_INTENT))
 
-        agent = PromptBasedSingleAgent(model=InvalidModel(), retries=0)
+        agent = LLMClerkAgent(model=InvalidModel(), retries=0)
         trace = agent.decide(observation)
 
         self.assertEqual("escalate", trace.action.action_type.value)
@@ -482,9 +486,9 @@ class PromptSingleAgentTests(unittest.TestCase):
 
     def test_commit_requires_prior_recommendation(self) -> None:
         env = BestOfferSelectionEnv()
-        observation, _ = env.reset(task=make_v1_direct_intent_task())
+        observation, _ = env.reset(task=make_v2_direct_intent_task())
 
-        agent = PromptBasedSingleAgent(
+        agent = LLMClerkAgent(
             model=type(
                 "CommitFirstModel",
                 (),
@@ -501,7 +505,7 @@ class PromptSingleAgentTests(unittest.TestCase):
         self.assertEqual("escalate", trace.action.action_type.value)
         self.assertIn("prior recommend_option", trace.error or "")
 
-    def test_prompt_single_agent_accepts_working_belief_envelope(self) -> None:
+    def test_prompt_clerk_agent_accepts_working_belief_envelope(self) -> None:
         class EnvelopeModel:
             def generate(self, *, system_prompt: str, user_prompt: str) -> str:
                 del system_prompt, user_prompt
@@ -513,7 +517,7 @@ class PromptSingleAgentTests(unittest.TestCase):
         env = BestOfferSelectionEnv()
         observation, _ = env.reset(task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT))
 
-        agent = PromptBasedSingleAgent(model=EnvelopeModel(), retries=0)
+        agent = LLMClerkAgent(model=EnvelopeModel(), retries=0)
         trace = agent.decide(observation)
 
         self.assertEqual("ask_clarification", trace.action.action_type.value)
@@ -522,12 +526,12 @@ class PromptSingleAgentTests(unittest.TestCase):
         self.assertEqual(100, trace.working_belief["budget_max_guess"])
         self.assertEqual("high", trace.working_belief["comfort_guess"])
 
-    def test_platform_agent_can_include_user_dialogue_when_enabled(self) -> None:
+    def test_clerk_agent_can_include_user_dialogue_when_enabled(self) -> None:
         env = BestOfferSelectionEnv()
         observation, _ = env.reset(task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT))
 
-        agent = LLMPlatformAgent(
-            model=DemoSingleAgentModel(),
+        agent = LLMClerkAgent(
+            model=DemoClerkAgentModel(),
             include_user_utterance_history=True,
         )
         trace = agent.decide(observation)
@@ -535,7 +539,7 @@ class PromptSingleAgentTests(unittest.TestCase):
         self.assertIn("user_utterance_history", trace.context)
         self.assertEqual(1, len(trace.context["user_utterance_history"]))
 
-    def test_openai_single_agent_model_uses_chat_completions(self) -> None:
+    def test_openai_clerk_agent_model_uses_chat_completions(self) -> None:
         class DummyCompletions:
             def __init__(self) -> None:
                 self.calls: list[dict[str, object]] = []
@@ -561,7 +565,7 @@ class PromptSingleAgentTests(unittest.TestCase):
 
         fake_module = SimpleNamespace(OpenAI=openai_factory)
         with patch.dict(sys.modules, {"openai": fake_module}):
-            model = OpenAISingleAgentModel(api_key="test-key", model="gpt-5.4-mini")
+            model = OpenAIClerkAgentModel(api_key="test-key", model="gpt-5.4-mini")
             raw = model.generate(system_prompt="sys", user_prompt="user")
 
         self.assertEqual('{"action_type":"escalate","explanation":"test"}', raw)
@@ -574,7 +578,7 @@ class PromptSingleAgentTests(unittest.TestCase):
         self.assertEqual({"type": "json_object"}, request["response_format"])
         self.assertEqual("developer", request["messages"][0]["role"])
 
-    def test_openai_single_agent_model_reads_api_key_from_env(self) -> None:
+    def test_openai_clerk_agent_model_reads_api_key_from_env(self) -> None:
         class DummyCompletions:
             def create(self, **kwargs: object) -> object:
                 del kwargs
@@ -592,16 +596,122 @@ class PromptSingleAgentTests(unittest.TestCase):
         fake_module = SimpleNamespace(OpenAI=openai_factory)
         with patch.dict(sys.modules, {"openai": fake_module}):
             with patch.dict(os.environ, {"OPENAI_API_KEY": "env-key"}, clear=False):
-                model = OpenAISingleAgentModel(model="gpt-5.4-mini")
+                model = OpenAIClerkAgentModel(model="gpt-5.4-mini")
                 model.generate(system_prompt="sys", user_prompt="user")
 
         self.assertEqual("env-key", captured["api_key"])
 
-    def test_openai_single_agent_model_rejects_non_ascii_api_key(self) -> None:
+    def test_openai_clerk_agent_model_rejects_non_ascii_api_key(self) -> None:
         fake_module = SimpleNamespace(OpenAI=lambda **kwargs: kwargs)
         with patch.dict(sys.modules, {"openai": fake_module}):
             with self.assertRaisesRegex(RuntimeError, "real ASCII API key"):
-                OpenAISingleAgentModel(api_key="你的key")
+                OpenAIClerkAgentModel(api_key="你的key")
+
+
+class TransactionDialogueTests(unittest.TestCase):
+    def test_dual_channel_parser_strips_hidden_env_action(self) -> None:
+        parsed = parse_dual_channel_output(
+            (
+                "I mostly need this for commuting, so something portable would help.\n"
+                '### ENV_ACTION {"actor":"buyer","type":"reveal_need",'
+                '"slot":"preference.portability"} ###'
+            ),
+            expected_actor=DialogueActor.BUYER,
+        )
+
+        self.assertEqual(
+            "I mostly need this for commuting, so something portable would help.",
+            parsed.visible_message,
+        )
+        self.assertEqual("buyer", parsed.env_action.actor.value)
+        self.assertEqual("reveal_need", parsed.env_action.action_type)
+        self.assertEqual("preference.portability", parsed.env_action.slot)
+        self.assertNotIn("ENV_ACTION", parsed.visible_message)
+
+    def test_transaction_dialogue_hides_actions_from_visible_history(self) -> None:
+        env = TransactionDialogueEnv(task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT))
+
+        _, info = env.process_turn(
+            actor=DialogueActor.BUYER,
+            raw_output=(
+                "I commute a lot, so I want something easy to carry.\n"
+                '### ENV_ACTION {"actor":"buyer","type":"reveal_need",'
+                '"slot":"preference.portability"} ###'
+            ),
+        )
+
+        self.assertEqual(1, info["event_count"])
+        self.assertEqual(1, len(info["visible_history"]))
+        self.assertNotIn("ENV_ACTION", info["visible_history"][0]["content"])
+        self.assertEqual("reveal_need", env.state.event_log[0].env_action.action_type)
+
+    def test_transaction_dialogue_converges_on_commit_then_accept(self) -> None:
+        env = TransactionDialogueEnv(task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT))
+
+        env.process_turn(
+            actor=DialogueActor.SELLER,
+            raw_output=(
+                "I recommend StudioLite ANC because it is within budget and handles commuting well.\n"
+                '### ENV_ACTION {"actor":"seller","type":"recommend",'
+                '"product_id":"offer_budget"} ###'
+            ),
+        )
+        env.process_turn(
+            actor=DialogueActor.SELLER,
+            raw_output=(
+                "If you are ready, I can finalize StudioLite ANC for you.\n"
+                '### ENV_ACTION {"actor":"seller","type":"commit",'
+                '"product_id":"offer_budget"} ###'
+            ),
+        )
+        _, info = env.process_turn(
+            actor=DialogueActor.BUYER,
+            raw_output=(
+                "That works for me. MAKE_DEAL\n"
+                '### ENV_ACTION {"actor":"buyer","type":"accept",'
+                '"product_id":"offer_budget"} ###'
+            ),
+        )
+
+        self.assertTrue(info["transaction_success"])
+        self.assertTrue(info["terminated"])
+        self.assertEqual("buyer_accepted", info["termination_reason"])
+        self.assertEqual("offer_budget", info["accepted_product_id"])
+
+    def test_transaction_dialogue_records_protocol_violations(self) -> None:
+        env = TransactionDialogueEnv(task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT))
+
+        _, info = env.process_turn(
+            actor=DialogueActor.SELLER,
+            raw_output=(
+                "I can finalize a made-up option now.\n"
+                '### ENV_ACTION {"actor":"seller","type":"commit",'
+                '"product_id":"missing_offer"} ###'
+            ),
+        )
+
+        self.assertFalse(info["transaction_success"])
+        self.assertEqual(1, info["invalid_action_count"])
+        self.assertEqual(1, info["protocol_violation_count"])
+        self.assertGreaterEqual(len(env.state.event_log[0].validation_errors), 1)
+
+    def test_transaction_prompts_warn_that_hidden_actions_are_stripped(self) -> None:
+        buyer_prompt = build_buyer_dialogue_prompt(
+            buyer_name="Buyer",
+            selection_model={"budget_max": 100, "must_have": {"wireless": True}},
+            conversation_history=[],
+        )
+        seller_prompt = build_seller_dialogue_prompt(
+            seller_name="Clerk",
+            product_catalog=[{"offer_id": "offer_budget", "price": 79}],
+            platform_rules={"commit_requires_recommend": True},
+            conversation_history=[],
+        )
+
+        self.assertIn("will be removed before the seller sees your message", buyer_prompt)
+        self.assertIn("will be removed before the buyer sees your message", seller_prompt)
+        self.assertIn("### ENV_ACTION", buyer_prompt)
+        self.assertIn("### ENV_ACTION", seller_prompt)
 
 
 class DialogueSurfaceTests(unittest.TestCase):

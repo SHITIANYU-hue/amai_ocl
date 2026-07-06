@@ -32,6 +32,13 @@ class RuleBasedUserSimulator:
     """Deterministic user simulator driven by an explicit utility model."""
 
     def utility(self, task: SelectionTask, offer: Offer, turns_elapsed: int) -> float:
+        """Compute latent consumer utility for one offer.
+
+        Inputs are the full hidden `SelectionTask`, one candidate `Offer`, and
+        elapsed turns. The output is a scalar utility used for comparison,
+        recommendation feedback, and final acceptance.
+        """
+
         # The latent consumer model is linear on revealed attributes plus a
         # search cost term. This stays hidden from the platform unless clarified.
         value_term = 0.0
@@ -42,6 +49,13 @@ class RuleBasedUserSimulator:
         )
 
     def explicit_violation_reason(self, task: SelectionTask, offer: Offer | None) -> str | None:
+        """Return the hard-constraint violation reason for an offer, if any.
+
+        Inputs are the hidden task and an optional offer. The output is a stable
+        string reason such as `budget_exceeded`, or `None` when the offer
+        satisfies explicit category, budget, and must-have constraints.
+        """
+
         if offer is None:
             return "unknown_offer"
         if offer.category != task.user_goal.category:
@@ -55,9 +69,17 @@ class RuleBasedUserSimulator:
         return None
 
     def offer_is_explicitly_feasible(self, task: SelectionTask, offer: Offer | None) -> bool:
+        """Return whether an offer passes all hard constraints."""
+
         return self.explicit_violation_reason(task=task, offer=offer) is None
 
     def best_offer(self, task: SelectionTask, turns_elapsed: int) -> Offer | None:
+        """Return the highest-utility feasible offer for the hidden consumer model.
+
+        Inputs are a task and elapsed turns. The output is the best feasible
+        `Offer`, or `None` if no offer satisfies hard constraints.
+        """
+
         feasible_offers = [
             offer for offer in task.offers if self.offer_is_explicitly_feasible(task=task, offer=offer)
         ]
@@ -66,6 +88,8 @@ class RuleBasedUserSimulator:
         return max(feasible_offers, key=lambda offer: self.utility(task, offer, turns_elapsed))
 
     def best_utility(self, task: SelectionTask, turns_elapsed: int) -> float:
+        """Return the best achievable utility including the outside option."""
+
         best_offer = self.best_offer(task=task, turns_elapsed=turns_elapsed)
         if best_offer is None:
             return task.outside_option_threshold
@@ -75,6 +99,13 @@ class RuleBasedUserSimulator:
         )
 
     def ask_clarification(self, task: SelectionTask, slot: str) -> dict[str, Any]:
+        """Answer one platform clarification request.
+
+        `slot` is a clarification key such as `budget.max` or
+        `preference.comfort`. The returned dictionary has a `status` plus the
+        normalized slot/value when the request is valid.
+        """
+
         # Clarification is product-agnostic: the task schema decides which
         # must-have and preference modules exist for the current category.
         normalized_slot = normalize_clarification_slot(slot)
@@ -120,6 +151,13 @@ class RuleBasedUserSimulator:
         comparison_offer: Offer | None,
         turns_elapsed: int,
     ) -> dict[str, Any]:
+        """Compare two offers under the hidden consumer utility model.
+
+        Inputs are two optional offers and elapsed turns. The returned
+        dictionary either reports an invalid comparison reason or the preferred
+        offer ID and utility gap.
+        """
+
         reason = self.explicit_violation_reason(task=task, offer=offer)
         comparison_reason = self.explicit_violation_reason(task=task, offer=comparison_offer)
         if reason is not None or comparison_reason is not None:
@@ -151,6 +189,13 @@ class RuleBasedUserSimulator:
         offer: Offer | None,
         turns_elapsed: int,
     ) -> dict[str, Any]:
+        """Evaluate a non-final recommendation.
+
+        Inputs are a task, optional offer, and elapsed turns. The returned
+        dictionary labels the buyer response as accept/hesitate/reject and
+        includes utility diagnostics used by metrics.
+        """
+
         reason = self.explicit_violation_reason(task=task, offer=offer)
         if reason is not None:
             return {
@@ -219,6 +264,13 @@ class RuleBasedUserSimulator:
         offer: Offer | None,
         turns_elapsed: int,
     ) -> dict[str, Any]:
+        """Evaluate a final transaction commit.
+
+        Inputs are a task, optional offer, and elapsed turns. The output reports
+        whether the buyer accepted, whether a hard violation was executed, and
+        the realized utility when applicable.
+        """
+
         reason = self.explicit_violation_reason(task=task, offer=offer)
         if reason is not None:
             return {
@@ -249,6 +301,8 @@ class RuleBasedUserSimulator:
         }
 
     def _best_offer_id(self, task: SelectionTask, turns_elapsed: int) -> str | None:
+        """Return the ID of the current best feasible offer, if one exists."""
+
         best_offer = self.best_offer(task=task, turns_elapsed=turns_elapsed)
         if best_offer is None:
             return None
@@ -256,6 +310,13 @@ class RuleBasedUserSimulator:
 
     @staticmethod
     def _lookup_slot_value(offer: Offer, slot: str) -> Any:
+        """Read a constraint/preference slot from an offer.
+
+        The input slot may refer to category, price, features, or attribute
+        values. The return value is the matched offer value, or `None` if the
+        slot is absent.
+        """
+
         if slot == "category":
             return offer.category
         if slot == "price":
@@ -268,6 +329,8 @@ class RuleBasedUserSimulator:
 
     @staticmethod
     def _matches_requirement(expected: Any, actual: Any) -> bool:
+        """Return whether an actual offer value satisfies a hard requirement."""
+
         if actual is None:
             return False
         if isinstance(expected, bool):

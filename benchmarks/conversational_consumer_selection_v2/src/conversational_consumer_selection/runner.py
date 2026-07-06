@@ -19,7 +19,12 @@ def run_episode(
     *,
     env: BestOfferSelectionEnv | None = None,
 ) -> dict[str, Any]:
-    """Run one decision policy on one task until termination."""
+    """Run one decision policy on one task until termination.
+
+    Inputs are a `SelectionTask`, a policy implementing `act(observation)`, and
+    optionally a preconfigured environment. The returned dictionary is the
+    terminal episode summary emitted by the environment.
+    """
 
     active_env = env or BestOfferSelectionEnv()
     observation, info = active_env.reset(task=task)
@@ -35,7 +40,12 @@ def run_benchmark(
     *,
     output_dir: str | Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Run a set of decision policies across tasks and optionally write summaries."""
+    """Run a set of decision policies across tasks and optionally write summaries.
+
+    Inputs are an iterable of tasks, named policies, and an optional output
+    directory. The function returns per-episode records and grouped summary
+    rows; if `output_dir` is provided, both are also written to disk.
+    """
 
     records: list[dict[str, Any]] = []
     for task in tasks:
@@ -60,7 +70,12 @@ def write_summary_files(
     records: list[dict[str, Any]],
     summaries: list[dict[str, Any]],
 ) -> None:
-    """Write per-episode and summary outputs to JSON and CSV."""
+    """Write per-episode and summary outputs to JSON and CSV.
+
+    Inputs are an output directory plus already-normalized record and summary
+    dictionaries. The function creates the directory if needed and returns
+    nothing.
+    """
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -77,6 +92,8 @@ def write_summary_files(
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    """Write homogeneous dictionaries to a CSV file at `path`."""
+
     if not rows:
         path.write_text("", encoding="utf-8")
         return

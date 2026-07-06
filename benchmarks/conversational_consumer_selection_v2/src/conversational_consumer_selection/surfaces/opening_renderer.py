@@ -8,6 +8,12 @@ from conversational_consumer_selection.schemas import SelectionTask
 
 
 def build_platform_opening_stage(task: SelectionTask) -> dict[str, Any]:
+    """Build the structured platform opening act for demos.
+
+    Input is a task for API symmetry with other renderers. The returned
+    dictionary is a stable structured welcome act.
+    """
+
     del task
     return {
         "stage_type": "platform_opening",
@@ -16,6 +22,8 @@ def build_platform_opening_stage(task: SelectionTask) -> dict[str, Any]:
 
 
 def build_user_initial_request(task: SelectionTask) -> dict[str, Any]:
+    """Build the structured user opening request from a task."""
+
     return {
         "stage_type": "user_request",
         "act_type": "request",
@@ -24,11 +32,15 @@ def build_user_initial_request(task: SelectionTask) -> dict[str, Any]:
 
 
 def render_platform_opening(task: SelectionTask) -> str:
+    """Render the clerk's first visible message for a task."""
+
     del task
     return "Welcome. I can help you narrow down the best option today."
 
 
 def render_buyer_opening(task: SelectionTask) -> str:
+    """Render the buyer's first visible request from `task.initial_user_request`."""
+
     request = task.initial_user_request
     category = str(request["category"])
     must_have = list(dict(request.get("must_have", {})).keys())
@@ -44,6 +56,8 @@ def render_buyer_opening(task: SelectionTask) -> str:
 
 
 def _category_phrase(category: str) -> str:
+    """Convert a category identifier into a readable noun phrase."""
+
     lowered = category.replace("_", " ")
     if lowered.endswith("s"):
         return lowered
@@ -51,6 +65,8 @@ def _category_phrase(category: str) -> str:
 
 
 def _must_have_phrase(slots: list[str]) -> str:
+    """Render must-have slot names as an English phrase suffix."""
+
     readable = [slot.replace("_", " ") for slot in slots]
     if not readable:
         return ""

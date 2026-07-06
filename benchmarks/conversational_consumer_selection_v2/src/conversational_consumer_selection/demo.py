@@ -20,6 +20,8 @@ from conversational_consumer_selection.tasks import (
 
 
 def main() -> None:
+    """Run a small batch benchmark smoke test from the command line."""
+
     parser = argparse.ArgumentParser(
         description="Run a small batch smoke test over the structured benchmark variants."
     )
@@ -37,7 +39,7 @@ def main() -> None:
         make_default_task(level=BenchmarkLevel.HIDDEN_INTENT),
     ]
     policies = {
-        "single": GreedySelectionPolicy(clarify_missing_preferences=False),
+        "clerk": GreedySelectionPolicy(clarify_missing_preferences=False),
         "clarify_then_commit": GreedySelectionPolicy(clarify_missing_preferences=True),
     }
     records, summaries = run_benchmark(tasks, policies, output_dir=args.output_dir)

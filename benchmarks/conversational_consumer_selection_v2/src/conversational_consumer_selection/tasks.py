@@ -1,13 +1,13 @@
 """Task builders for the benchmark.
 
-The benchmark now has one stable structured base (`v0`) and two dialogue layers
-(`v1` and `v2`) built on top of it. The builders in this file keep those roles
+The benchmark now has one stable structured base (`v0`) and V2 dialogue layers
+built on top of it. The builders in this file keep those roles
 separate:
 
 - `make_default_task(...)` is the canonical benchmark task factory used by tests
   and batch runs.
 - `make_v0_demo_task()` fixes the opening contract to the structured-only demo.
-- `make_v1_direct_intent_task()`, `make_v1_partial_intent_task()`, and
+- `make_v2_direct_intent_task()`, `make_v2_partial_intent_task()`, and
   `make_v2_hidden_intent_task()` reuse the same latent headphone market while
   changing what is visible at reset time.
 """
@@ -26,7 +26,7 @@ from conversational_consumer_selection.schemas import (
 
 
 def make_default_task(level: BenchmarkLevel = BenchmarkLevel.DIRECT_INTENT) -> SelectionTask:
-    """Build a deterministic V1 task for smoke tests and examples."""
+    """Build a deterministic V2 task for smoke tests and examples."""
 
     category_schema = CategorySchema(
         category="headphones",
@@ -116,7 +116,7 @@ def _clone_task_with_visibility(
 
     The latent consumer model and offer set stay fixed. Only the first-turn
     request and reset-time revealed context change, which is exactly the degree
-    of freedom needed to define v0/v1/v2 on a common base.
+    of freedom needed to define the benchmark modes on a common base.
     """
 
     return SelectionTask(
@@ -162,17 +162,17 @@ def make_v0_demo_task() -> SelectionTask:
     )
 
 
-def make_v1_direct_intent_task() -> SelectionTask:
+def make_v2_direct_intent_task() -> SelectionTask:
     """Build the dialogue-layer task with direct structured intent access.
 
-    This is the easier `v1` mode: dialogue exists, but the platform also gets
+    This is the easier V2 mode: dialogue exists, but the platform also gets
     the full structured intent state from reset time onward.
     """
 
     task = make_default_task(level=BenchmarkLevel.DIRECT_INTENT)
     return _clone_task_with_visibility(
         task,
-        task_id="default_v1_direct_intent",
+        task_id="default_v2_direct_intent",
         initial_request_payload={"category": task.user_goal.category},
         initial_revealed_context={
             "category": task.user_goal.category,
@@ -183,10 +183,10 @@ def make_v1_direct_intent_task() -> SelectionTask:
     )
 
 
-def make_v1_partial_intent_task() -> SelectionTask:
+def make_v2_partial_intent_task() -> SelectionTask:
     """Build the dialogue-layer task that sits between v0 and hidden intent.
 
-    `v1_partial_intent` keeps the same latent market as `v0`, but the platform
+    `v2_partial_intent` keeps the same latent market as `v0`, but the platform
     now sees the user's natural-language request history in addition to the
     structured contract. Budget is revealed structurally; must-haves and
     preferences still need recovery.
@@ -195,7 +195,7 @@ def make_v1_partial_intent_task() -> SelectionTask:
     task = make_default_task(level=BenchmarkLevel.PARTIAL_INTENT)
     return _clone_task_with_visibility(
         task,
-        task_id="default_v1_partial_intent",
+        task_id="default_v2_partial_intent",
         initial_request_payload={"category": task.user_goal.category},
         initial_revealed_context={
             "category": task.user_goal.category,
@@ -206,16 +206,16 @@ def make_v1_partial_intent_task() -> SelectionTask:
     )
 
 
-def make_v1_dialogue_task() -> SelectionTask:
-    """Backward-compatible alias for the partial-intent dialogue task."""
+def make_v2_dialogue_task() -> SelectionTask:
+    """Backward-compatible dialogue entry point for the partial-intent task."""
 
-    return make_v1_partial_intent_task()
+    return make_v2_partial_intent_task()
 
 
 def make_v2_hidden_intent_task() -> SelectionTask:
     """Build the hidden-intent dialogue task.
 
-    `v2` keeps the same opening request style as `v1`, but the structured
+    This mode keeps the same opening request style as partial intent, but the structured
     contract falls back to the minimal v0 reset state. The platform therefore
     has to lean much more heavily on user dialogue and history.
     """
@@ -232,3 +232,4 @@ def make_v2_hidden_intent_task() -> SelectionTask:
             "preference_weights": {},
         },
     )
+

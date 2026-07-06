@@ -12,7 +12,12 @@ def build_episode_record(
     arm: str | None = None,
     setting: str | None = None,
 ) -> dict[str, Any]:
-    """Normalize one terminal info payload into a record."""
+    """Normalize one terminal info payload into a flat episode record.
+
+    `info` is the environment summary from a completed episode. Optional `arm`
+    and `setting` labels are copied into the output record for grouped
+    aggregation.
+    """
 
     record = {
         "task_id": info["task_id"],
@@ -41,7 +46,11 @@ def summarize_records(
     *,
     group_keys: Iterable[str] = ("arm", "setting"),
 ) -> list[dict[str, Any]]:
-    """Aggregate episode records into grouped summaries."""
+    """Aggregate episode records into grouped summaries.
+
+    Inputs are flat records and grouping key names. The output is a sorted list
+    of summary dictionaries containing rates and averages for each group.
+    """
 
     if not records:
         return []
@@ -79,4 +88,6 @@ def summarize_records(
 
 
 def _mean(records: Sequence[Mapping[str, Any]], field_name: str) -> float:
+    """Return the arithmetic mean of a numeric field across records."""
+
     return sum(float(record[field_name]) for record in records) / float(len(records))

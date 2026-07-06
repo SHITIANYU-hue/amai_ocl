@@ -1,4 +1,4 @@
-"""Demo for the LLM-backed platform agent."""
+"""Demo for the LLM-backed clerk agent."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from conversational_consumer_selection.agents import (
-    DemoPlatformAgentModel,
-    LLMPlatformAgent,
-    OpenAIPlatformAgentModel,
+    DemoClerkAgentModel,
+    LLMClerkAgent,
+    OpenAIClerkAgentModel,
 )
 from conversational_consumer_selection.env import BestOfferSelectionEnv
 from conversational_consumer_selection.surfaces import (
@@ -24,8 +24,10 @@ from conversational_consumer_selection.tasks import make_v0_demo_task
 
 
 def main() -> None:
+    """Run the CLI demo for the structured clerk-agent decision loop."""
+
     parser = argparse.ArgumentParser(
-        description="Run the prompt-style single-agent demo with a local demo backend or OpenAI."
+        description="Run the prompt-style clerk-agent demo with a local demo backend or OpenAI."
     )
     parser.add_argument(
         "--backend",
@@ -65,15 +67,15 @@ def main() -> None:
     task = make_v0_demo_task()
     env = BestOfferSelectionEnv()
     if args.backend == "openai":
-        model_backend = OpenAIPlatformAgentModel(
+        model_backend = OpenAIClerkAgentModel(
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             max_tokens=args.max_tokens,
             base_url=args.base_url,
         )
     else:
-        model_backend = DemoPlatformAgentModel()
-    agent = LLMPlatformAgent(model=model_backend)
+        model_backend = DemoClerkAgentModel()
+    agent = LLMClerkAgent(model=model_backend)
 
     observation, info = env.reset(task=task)
 
@@ -164,6 +166,8 @@ def main() -> None:
 
 
 def _compact_state(context: dict[str, object]) -> dict[str, object]:
+    """Return a small printable subset of the agent context."""
+
     revealed_context = dict(context["revealed_context"])
     return {
         "mode": "v0_structured",
@@ -176,6 +180,8 @@ def _compact_state(context: dict[str, object]) -> dict[str, object]:
 
 
 def _compact_result(info: dict[str, object], step_payoff: float) -> dict[str, object]:
+    """Return a small printable subset of one environment step result."""
+
     result = {
         "step_payoff": step_payoff,
         "response_status": info["last_response"].get("status"),
@@ -194,6 +200,8 @@ def _compact_result(info: dict[str, object], step_payoff: float) -> dict[str, ob
 
 
 def _compact_summary(info: dict[str, object]) -> dict[str, object]:
+    """Return final summary fields shown by the CLI demo."""
+
     return {
         "task_id": info["task_id"],
         "mode": "v0_structured",

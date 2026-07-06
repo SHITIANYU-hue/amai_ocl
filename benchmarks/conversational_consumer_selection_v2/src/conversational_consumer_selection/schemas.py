@@ -85,6 +85,13 @@ class Offer:
     title: str = ""
 
     def __post_init__(self) -> None:
+        """Validate and canonicalize immutable offer fields.
+
+        Inputs are the dataclass fields supplied to `Offer`. The method raises
+        `ValueError` for invalid prices and stores normalized copies of mapping
+        fields; it returns nothing.
+        """
+
         if self.price < 0.0:
             raise ValueError("offer price must be non-negative")
         object.__setattr__(self, "features", dict(self.features))
@@ -104,6 +111,12 @@ class UserGoal:
     must_have: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Validate the explicit user goal and copy mutable mappings.
+
+        Reads `budget_max` and `must_have` from the dataclass instance. Raises
+        `ValueError` for invalid budgets and returns nothing.
+        """
+
         if self.budget_max < 0.0:
             raise ValueError("budget_max must be non-negative")
         object.__setattr__(self, "must_have", dict(self.must_have))
@@ -118,6 +131,13 @@ class CategorySchema:
     preference_slots: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        """Freeze category slot definitions into tuples.
+
+        Inputs are the category, constraint-slot names, and preference-slot
+        names on the dataclass. The method normalizes slot containers and
+        returns nothing.
+        """
+
         object.__setattr__(self, "constraint_slots", tuple(self.constraint_slots))
         object.__setattr__(self, "preference_slots", tuple(self.preference_slots))
 
@@ -130,6 +150,12 @@ class UserProfile:
     initial_request_payload: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Copy the initial request payload into an immutable profile object.
+
+        Input is `initial_request_payload`; output is the same logical payload
+        stored as a plain `dict` on the frozen dataclass.
+        """
+
         object.__setattr__(self, "initial_request_payload", dict(self.initial_request_payload))
 
 
@@ -145,6 +171,13 @@ class LatentConsumerModel:
     turn_penalty: float = 0.0
 
     def __post_init__(self) -> None:
+        """Validate and normalize the hidden consumer utility model.
+
+        Inputs are latent budget, hard constraints, preference weights, price
+        sensitivity, outside option, and turn penalty. The method raises
+        `ValueError` for invalid numeric settings and returns nothing.
+        """
+
         if self.budget_max < 0.0:
             raise ValueError("budget_max must be non-negative")
         if self.price_sensitivity < 0.0:
@@ -181,11 +214,20 @@ class SelectionTask:
     latent_consumer_model: LatentConsumerModel | None = None
 
     def __post_init__(self) -> None:
+        """Validate one task and derive its canonical latent/visible contracts.
+
+        Inputs are the task fields supplied by a builder: offers, latent model,
+        visibility mode, first request payload, and optional revealed-context
+        overrides. The output is the same frozen `SelectionTask` with normalized
+        fields such as `initial_revealed_context`, `category_schema`, and
+        `latent_consumer_model`.
+        """
+
         offers = tuple(self.offers)
         weights = {str(name): float(value) for name, value in self.preference_weights.items()}
         hidden_slots = tuple(self.hidden_preference_slots)
         if len(offers) < 2 or len(offers) > 4:
-            raise ValueError("V1 requires 2 to 4 offers per task")
+            raise ValueError("V2 requires 2 to 4 offers per task")
         if not weights:
             raise ValueError("preference_weights must not be empty")
         if self.price_sensitivity < 0.0:
@@ -351,6 +393,13 @@ class SelectionAction:
     explanation: str = ""
 
     def __post_init__(self) -> None:
+        """Validate action-specific required fields.
+
+        Reads the structured action fields and raises `ValueError` if the
+        payload cannot be executed by the benchmark protocol. The method returns
+        nothing.
+        """
+
         if self.action_type is ActionType.ASK_CLARIFICATION and not self.slot:
             raise ValueError("ask_clarification requires slot")
         if self.action_type in {ActionType.RECOMMEND_OPTION, ActionType.COMMIT_SELECTION}:
@@ -367,6 +416,12 @@ class SelectionAction:
 
     @classmethod
     def ask_clarification(cls, slot: str, explanation: str = "") -> "SelectionAction":
+        """Create an action asking the buyer/environment to reveal one slot.
+
+        `slot` is a benchmark clarification key such as `budget.max`; the
+        returned value is a validated `SelectionAction`.
+        """
+
         return cls(action_type=ActionType.ASK_CLARIFICATION, slot=slot, explanation=explanation)
 
     @classmethod
@@ -376,6 +431,12 @@ class SelectionAction:
         comparison_offer_id: str,
         explanation: str = "",
     ) -> "SelectionAction":
+        """Create an action asking the simulator to compare two offers.
+
+        Inputs are two distinct offer IDs and optional rationale text. The
+        return value is a validated `SelectionAction`.
+        """
+
         return cls(
             action_type=ActionType.COMPARE_OPTIONS,
             offer_id=offer_id,
@@ -385,6 +446,8 @@ class SelectionAction:
 
     @classmethod
     def recommend_option(cls, offer_id: str, explanation: str = "") -> "SelectionAction":
+        """Create a non-final recommendation action for one offer ID."""
+
         return cls(
             action_type=ActionType.RECOMMEND_OPTION,
             offer_id=offer_id,
@@ -393,6 +456,8 @@ class SelectionAction:
 
     @classmethod
     def commit_selection(cls, offer_id: str, explanation: str = "") -> "SelectionAction":
+        """Create a final transaction-commit action for one offer ID."""
+
         return cls(
             action_type=ActionType.COMMIT_SELECTION,
             offer_id=offer_id,
@@ -401,6 +466,8 @@ class SelectionAction:
 
     @classmethod
     def escalate(cls, explanation: str = "") -> "SelectionAction":
+        """Create an escalation action when no safe product action is available."""
+
         return cls(action_type=ActionType.ESCALATE, explanation=explanation)
 
 
@@ -413,6 +480,8 @@ class HistoryEntry:
     response: Mapping[str, Any]
 
     def __post_init__(self) -> None:
+        """Copy the simulator response payload for an immutable history row."""
+
         object.__setattr__(self, "response", dict(self.response))
 
 
@@ -438,6 +507,13 @@ class Observation:
     terminated: bool = False
 
     def __post_init__(self) -> None:
+        """Validate and canonicalize the public observation object.
+
+        Inputs are the public state fields emitted by the environment. The
+        method copies mutable containers, validates turn counts, and returns
+        nothing.
+        """
+
         revealed_context = dict(self.revealed_context)
         if "must_have" in revealed_context:
             revealed_context["must_have"] = dict(revealed_context["must_have"])

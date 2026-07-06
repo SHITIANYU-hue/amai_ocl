@@ -60,6 +60,13 @@ class BestOfferSelectionEnv:
         simulator: RuleBasedUserSimulator | None = None,
         default_task: SelectionTask | None = None,
     ) -> None:
+        """Create an environment with an optional simulator and default task.
+
+        `simulator` supplies deterministic buyer judgments. `default_task` is
+        used when `reset()` is called without an explicit task. The constructor
+        stores these dependencies and returns nothing.
+        """
+
         self._simulator = simulator or RuleBasedUserSimulator()
         self._default_task = default_task
         self._state: EpisodeState | None = None
@@ -78,6 +85,13 @@ class BestOfferSelectionEnv:
         task: SelectionTask | None = None,
         seed: int | None = None,
     ) -> tuple[Observation, dict[str, Any]]:
+        """Start a new episode and return the initial observation and summary.
+
+        `task` selects the benchmark episode; if omitted, the environment uses
+        its default task or the package default. `seed` is accepted for Gym-like
+        compatibility but not used because this environment is deterministic.
+        """
+
         del seed
         active_task = task or self._default_task or make_default_task()
         user_utterance_history: list[str] = []
@@ -103,6 +117,13 @@ class BestOfferSelectionEnv:
         self,
         action: SelectionAction,
     ) -> tuple[Observation, float, bool, bool, dict[str, Any]]:
+        """Apply one structured platform action.
+
+        Input is a validated `SelectionAction` from a controller. The return
+        tuple follows the Gym convention: next observation, scalar payoff,
+        terminated flag, truncated flag, and an info/metrics dictionary.
+        """
+
         state = self.state
         if state.terminated:
             raise RuntimeError("environment is already terminated")
@@ -241,6 +262,13 @@ class BestOfferSelectionEnv:
         }
 
     def _step_clarification(self, action: SelectionAction) -> dict[str, Any]:
+        """Execute an ask-clarification action against the simulator.
+
+        Input is an `ASK_CLARIFICATION` action. The returned dictionary is the
+        simulator response; if successful, the revealed public context is also
+        updated in-place.
+        """
+
         state = self.state
         response = self._simulator.ask_clarification(state.task, action.slot or "")
         if response["status"] == "clarified":
@@ -252,6 +280,8 @@ class BestOfferSelectionEnv:
         return response
 
     def _step_compare(self, action: SelectionAction) -> dict[str, Any]:
+        """Execute a compare-options action and return simulator feedback."""
+
         state = self.state
         return self._simulator.compare_options(
             state.task,
@@ -261,6 +291,8 @@ class BestOfferSelectionEnv:
         )
 
     def _step_recommend(self, action: SelectionAction) -> dict[str, Any]:
+        """Execute a non-final recommendation and return buyer feedback."""
+
         state = self.state
         return self._simulator.recommend_option(
             state.task,
@@ -269,6 +301,8 @@ class BestOfferSelectionEnv:
         )
 
     def _step_commit(self, action: SelectionAction) -> dict[str, Any]:
+        """Execute a final commit action and return the buyer transaction result."""
+
         state = self.state
         return self._simulator.commit_selection(
             state.task,
@@ -277,6 +311,8 @@ class BestOfferSelectionEnv:
         )
 
     def _build_observation(self) -> Observation:
+        """Build the public observation exposed to the next controller step."""
+
         state = self.state
         # Observations deliberately expose only the public contract and the
         # structured interaction trace. Internal beliefs stay inside the agent.
@@ -301,6 +337,8 @@ class BestOfferSelectionEnv:
         )
 
     def _compute_unrecovered_violation(self) -> bool:
+        """Return whether an episode ended with an unresolved safety violation."""
+
         state = self.state
         if state.executed_violation_count > 0:
             return True
@@ -313,6 +351,8 @@ class BestOfferSelectionEnv:
         return state.transient_violation_count > 0
 
     def _lookup_offer(self, offer_id: str | None) -> Offer | None:
+        """Resolve an offer ID inside the active task, returning `None` if absent."""
+
         if offer_id is None:
             return None
         state = self.state

@@ -22,7 +22,12 @@ def render_buyer_response(
     include_signal_tag: bool = False,
     annotate_entities: bool = False,
 ) -> str:
-    """Render one buyer-side utterance from the structured simulator response."""
+    """Render one buyer-side utterance from a structured simulator response.
+
+    Inputs are the platform action, simulator response payload, optional offers
+    for product names, and rendering flags. The output is natural-language text
+    representing what the buyer says to the clerk.
+    """
 
     del include_signal_tag
 
@@ -75,6 +80,8 @@ def render_buyer_response(
 
 
 def _render_clarification_reveal(slot: str, value: Any, *, annotate_entities: bool) -> str:
+    """Render a buyer answer that reveals one clarified slot value."""
+
     normalized_slot = normalize_clarification_slot(slot)
     if normalized_slot == CLARIFICATION_BUDGET_MAX:
         return f"My budget ceiling is about ${float(value):.0f}."
@@ -118,6 +125,8 @@ def _render_clarification_reveal(slot: str, value: Any, *, annotate_entities: bo
 
 
 def _render_recommendation_rejection(reason: str) -> str:
+    """Render buyer text for rejecting a non-final recommendation reason."""
+
     if reason == "dominated_offer":
         return "I do not think that is the best option for me."
     if reason == "budget_exceeded":
@@ -130,6 +139,8 @@ def _render_recommendation_rejection(reason: str) -> str:
 
 
 def _render_commit_violation(reason: str) -> str:
+    """Render buyer text for rejecting an invalid final commit."""
+
     if reason == "budget_exceeded":
         return "I cannot finalize that because it goes over my budget."
     if reason == "must_have_missing":
@@ -142,6 +153,8 @@ def _render_commit_violation(reason: str) -> str:
 
 
 def _importance_descriptor(value: float) -> str:
+    """Map a numeric preference weight to a readable importance phrase."""
+
     if value >= 1.0:
         return "extremely important"
     if value >= 0.7:
@@ -152,12 +165,16 @@ def _importance_descriptor(value: float) -> str:
 
 
 def _slot_reference(slot: str, *, annotate_entities: bool) -> str:
+    """Render a slot as plain text or a debug entity anchor."""
+
     if annotate_entities:
         return _slot_anchor(slot)
     return slot.replace("_", " ")
 
 
 def _slot_anchor(slot: str) -> str:
+    """Return the debug annotation token for a slot."""
+
     return f"[[SLOT:{slot}]]"
 
 
@@ -167,6 +184,8 @@ def _offer_reference(
     *,
     annotate_entities: bool,
 ) -> str:
+    """Render an offer as plain text or a debug product anchor."""
+
     if annotate_entities:
         return _offer_anchor(offer, fallback_offer_id)
     if offer is None:
@@ -177,6 +196,8 @@ def _offer_reference(
 
 
 def _offer_anchor(offer: Offer | None, fallback_offer_id: str) -> str:
+    """Return the debug annotation token for an offer reference."""
+
     if offer is None:
         return f"[[PRODUCT:{fallback_offer_id}]]"
     if offer.title:

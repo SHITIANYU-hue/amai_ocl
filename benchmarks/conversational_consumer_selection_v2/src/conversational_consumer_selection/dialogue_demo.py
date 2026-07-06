@@ -11,9 +11,9 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from conversational_consumer_selection.agents import (
-    DemoPlatformAgentModel,
-    LLMPlatformAgent,
-    OpenAIPlatformAgentModel,
+    DemoClerkAgentModel,
+    LLMClerkAgent,
+    OpenAIClerkAgentModel,
 )
 from conversational_consumer_selection.env import BestOfferSelectionEnv
 from conversational_consumer_selection.policies import GreedySelectionPolicy
@@ -27,15 +27,17 @@ from conversational_consumer_selection.surfaces import (
     render_platform_action_surface,
 )
 from conversational_consumer_selection.tasks import (
-    make_v1_direct_intent_task,
-    make_v1_partial_intent_task,
+    make_v2_direct_intent_task,
     make_v2_hidden_intent_task,
+    make_v2_partial_intent_task,
 )
 
 
 def main() -> None:
+    """Run the CLI demo for V2 dialogue-layer benchmark modes."""
+
     parser = argparse.ArgumentParser(
-        description="Run the dialogue-layer demos built on top of the v0 structured core."
+        description="Run the V2 dialogue-layer demos built on top of the v0 structured core."
     )
     parser.add_argument(
         "--backend",
@@ -45,8 +47,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=("v1_direct_intent", "v1_partial_intent", "v2_hidden_intent"),
-        default="v1_partial_intent",
+        choices=(
+            "v2_direct_intent",
+            "v2_partial_intent",
+            "v2_hidden_intent",
+        ),
+        default="v2_partial_intent",
         help="Dialogue-layer demo mode.",
     )
     parser.add_argument(
@@ -91,10 +97,10 @@ def main() -> None:
 
     if args.mode == "v2_hidden_intent":
         task = make_v2_hidden_intent_task()
-    elif args.mode == "v1_direct_intent":
-        task = make_v1_direct_intent_task()
+    elif args.mode == "v2_direct_intent":
+        task = make_v2_direct_intent_task()
     else:
-        task = make_v1_partial_intent_task()
+        task = make_v2_partial_intent_task()
     env = BestOfferSelectionEnv()
     policy = _build_policy(args)
     decorator = _build_decorator(args)
@@ -213,24 +219,28 @@ def main() -> None:
     )
 
 
-def _build_policy(args: argparse.Namespace) -> GreedySelectionPolicy | LLMPlatformAgent:
+def _build_policy(args: argparse.Namespace) -> GreedySelectionPolicy | LLMClerkAgent:
+    """Construct the platform-side decision backend requested by CLI args."""
+
     if args.backend == "rule":
         return GreedySelectionPolicy(clarify_missing_preferences=True)
     if args.backend == "openai":
-        model = OpenAIPlatformAgentModel(
+        model = OpenAIClerkAgentModel(
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             max_tokens=args.max_tokens,
             base_url=args.base_url,
         )
-        return LLMPlatformAgent(model=model, include_user_utterance_history=True)
-    return LLMPlatformAgent(
-        model=DemoPlatformAgentModel(),
+        return LLMClerkAgent(model=model, include_user_utterance_history=True)
+    return LLMClerkAgent(
+        model=DemoClerkAgentModel(),
         include_user_utterance_history=True,
     )
 
 
 def _build_decorator(args: argparse.Namespace) -> DialogueDecorator:
+    """Construct the visible dialogue renderer requested by CLI args."""
+
     if args.dialogue_backend == "openai":
         return DialogueDecorator(
             model=OpenAIDialogueModel(
@@ -244,6 +254,8 @@ def _build_decorator(args: argparse.Namespace) -> DialogueDecorator:
 
 
 def _pretty_action(action: object) -> str:
+    """Render a structured action object as pretty JSON for debug output."""
+
     payload = {
         "action_type": action.action_type.value,
         "slot": action.slot,

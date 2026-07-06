@@ -1,7 +1,7 @@
-"""LLM-backed platform agent for benchmark-side decision making.
+"""LLM-backed clerk agent for benchmark-side decision making.
 
 This module turns the public `Observation` contract into one structured
-`SelectionAction`. The agent may keep richer internal beliefs, but only the
+`SelectionAction`. The clerk may keep richer internal beliefs, but only the
 action leaves the module and reaches the environment.
 """
 
@@ -32,16 +32,16 @@ from conversational_consumer_selection.schemas import (
 _OBSERVATION_JSON_MARKER = "Observation JSON:"
 
 
-class PlatformAgentModel(Protocol):
-    """Minimal text-generation interface for the platform-side agent."""
+class ClerkAgentModel(Protocol):
+    """Minimal text-generation interface for the evaluated clerk agent."""
 
     def generate(self, *, system_prompt: str, user_prompt: str) -> str:
         """Return one raw text completion for the current prompt."""
 
 
 @dataclass
-class OpenAIPlatformAgentModel:
-    """OpenAI-backed text model for the platform-side agent."""
+class OpenAIClerkAgentModel:
+    """OpenAI-backed text model for the evaluated clerk agent."""
 
     model: str = "gpt-5.4-mini"
     api_key: str | None = None
@@ -52,6 +52,14 @@ class OpenAIPlatformAgentModel:
     response_format_json: bool = True
 
     def __post_init__(self) -> None:
+        """Initialize the OpenAI client and resolve credentials.
+
+        Inputs are dataclass configuration fields such as model name, API key,
+        base URL, and response-format preference. The method stores a client on
+        the instance and raises `RuntimeError` if credentials or dependencies
+        are missing.
+        """
+
         try:
             import openai  # noqa: PLC0415
         except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
@@ -79,6 +87,12 @@ class OpenAIPlatformAgentModel:
         )
 
     def generate(self, *, system_prompt: str, user_prompt: str) -> str:
+        """Send one clerk prompt pair to the configured OpenAI-compatible model.
+
+        Inputs are the system/developer prompt and the user prompt. The return
+        value is stripped model text, normally a JSON object string.
+        """
+
         request: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -108,8 +122,8 @@ class OpenAIPlatformAgentModel:
 
 
 @dataclass(frozen=True)
-class SingleAgentDecisionTrace:
-    """One platform-side decision trace for debugging and demos."""
+class ClerkAgentDecisionTrace:
+    """One clerk-side decision trace for debugging and demos."""
 
     context: Mapping[str, Any]
     system_prompt: str
@@ -121,12 +135,17 @@ class SingleAgentDecisionTrace:
     error: str | None = None
 
 
-def build_platform_agent_context(
+def build_clerk_agent_context(
     observation: Observation,
     *,
     include_user_utterance_history: bool = False,
 ) -> dict[str, Any]:
-    """Serialize the observation contract for one platform decision step."""
+    """Serialize the observation contract for one clerk decision step.
+
+    Input is the public `Observation`; optional `include_user_utterance_history`
+    decides whether buyer-side natural-language history is included. The output
+    is a JSON-serializable dictionary used in the LLM prompt.
+    """
 
     context = {
         "level": observation.level.value,
@@ -151,11 +170,11 @@ def build_platform_agent_context(
     return context
 
 
-def build_platform_agent_system_prompt() -> str:
-    """Return the fixed system prompt for the platform-side agent."""
+def build_clerk_agent_system_prompt() -> str:
+    """Return the fixed system prompt for the evaluated clerk agent."""
 
     return (
-        "You are the platform-side single agent in a conversational consumer selection "
+        "You are the evaluated clerk agent in a conversational consumer selection "
         "environment. Choose exactly one next structured action from the current revealed "
         "context, candidate offers, and structured interaction history. "
         "In partial-intent settings, user_utterance_history is additional user-side natural "
@@ -184,7 +203,7 @@ def build_platform_agent_system_prompt() -> str:
     )
 
 
-def build_platform_agent_user_prompt(context: Mapping[str, Any]) -> str:
+def build_clerk_agent_user_prompt(context: Mapping[str, Any]) -> str:
     """Render the user prompt that carries the structured observation context."""
 
     return (
@@ -195,45 +214,36 @@ def build_platform_agent_user_prompt(context: Mapping[str, Any]) -> str:
     )
 
 
-def build_single_agent_context(observation: Observation) -> dict[str, Any]:
-    """Backward-compatible alias for the platform agent context builder."""
-
-    return build_platform_agent_context(observation)
-
-
-def build_single_agent_system_prompt() -> str:
-    """Backward-compatible alias for the platform agent system prompt."""
-
-    return build_platform_agent_system_prompt()
-
-
-def build_single_agent_user_prompt(context: Mapping[str, Any]) -> str:
-    """Backward-compatible alias for the platform agent user prompt."""
-
-    return build_platform_agent_user_prompt(context)
-
-
 @dataclass
-class LLMPlatformAgent:
-    """Policy wrapper that turns a text model into a structured platform action."""
+class LLMClerkAgent:
+    """Policy wrapper that turns a text model into a structured clerk action."""
 
-    model: PlatformAgentModel
+    model: ClerkAgentModel
     retries: int = 1
     include_user_utterance_history: bool = False
 
     def act(self, observation: Observation) -> SelectionAction:
+        """Return only the executable structured action for policy runners."""
+
         return self.decide(observation).action
 
-    def decide(self, observation: Observation) -> SingleAgentDecisionTrace:
+    def decide(self, observation: Observation) -> ClerkAgentDecisionTrace:
+        """Run model generation, parsing, validation, and fallback handling.
+
+        Input is one public observation. The output is a `ClerkAgentDecisionTrace`
+        containing prompts, raw model output, parsed action, optional internal
+        belief, and any fallback error.
+        """
+
         # The prompt carries only the benchmark contract. If a model wants to
         # maintain a richer guess about the user, it can return working_belief
         # as a non-executable trace alongside the actual action.
-        context = build_platform_agent_context(
+        context = build_clerk_agent_context(
             observation,
             include_user_utterance_history=self.include_user_utterance_history,
         )
-        system_prompt = build_platform_agent_system_prompt()
-        base_user_prompt = build_platform_agent_user_prompt(context)
+        system_prompt = build_clerk_agent_system_prompt()
+        base_user_prompt = build_clerk_agent_user_prompt(context)
         user_prompt = base_user_prompt
         last_error: str | None = None
         raw_output = ""
@@ -248,7 +258,7 @@ class LLMPlatformAgent:
                 working_belief = _extract_working_belief(payload)
                 action = _parse_action_payload_object(payload)
                 validate_action_against_observation(action, observation)
-                return SingleAgentDecisionTrace(
+                return ClerkAgentDecisionTrace(
                     context=context,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
@@ -266,7 +276,7 @@ class LLMPlatformAgent:
                 )
 
         fallback = SelectionAction.escalate("invalid_model_output")
-        return SingleAgentDecisionTrace(
+        return ClerkAgentDecisionTrace(
             context=context,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -278,13 +288,20 @@ class LLMPlatformAgent:
 
 
 @dataclass
-class DemoPlatformAgentModel:
-    """Deterministic demo backend that behaves like a platform-side model."""
+class DemoClerkAgentModel:
+    """Deterministic demo backend that behaves like an evaluated clerk model."""
 
     clarify_missing_preferences: bool = True
     price_penalty: float = 0.01
 
     def generate(self, *, system_prompt: str, user_prompt: str) -> str:
+        """Return deterministic JSON for demos without calling an external LLM.
+
+        Inputs match `ClerkAgentModel.generate`; `system_prompt` is ignored and
+        `user_prompt` is parsed for observation JSON. The output is a JSON action
+        string.
+        """
+
         del system_prompt
         context = _extract_context_from_user_prompt(user_prompt)
         revealed_preferences = context["revealed_context"]["preference_weights"]
@@ -338,6 +355,8 @@ class DemoPlatformAgentModel:
         )
 
     def _rank_feasible_offers(self, context: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        """Return feasible offers sorted from highest to lowest demo score."""
+
         feasible_offers = [
             offer for offer in context["offers"] if self._is_explicitly_feasible(context, offer)
         ]
@@ -348,6 +367,8 @@ class DemoPlatformAgentModel:
         )
 
     def _score_offer(self, context: Mapping[str, Any], offer: Mapping[str, Any]) -> float:
+        """Score one serialized offer using revealed preferences and price."""
+
         score = 0.0
         revealed_preferences = context["revealed_context"]["preference_weights"]
         attribute_values = offer.get("attribute_values", {})
@@ -357,6 +378,8 @@ class DemoPlatformAgentModel:
         return score
 
     def _is_explicitly_feasible(self, context: Mapping[str, Any], offer: Mapping[str, Any]) -> bool:
+        """Return whether a serialized offer passes revealed hard constraints."""
+
         revealed_context = context["revealed_context"]
         if offer["category"] != revealed_context["category"]:
             return False
@@ -382,8 +405,10 @@ class DemoPlatformAgentModel:
         return True
 
     def _clarification_priority(self, context: Mapping[str, Any]) -> list[str]:
+        """Rank missing clarification slots by likely decision relevance."""
+
         slots: list[str] = []
-        
+
         feasible_offers = [
             offer for offer in context["offers"] if self._is_explicitly_feasible(context, offer)
         ]
@@ -422,6 +447,8 @@ class DemoPlatformAgentModel:
         history: list[Mapping[str, Any]],
         action_type: ActionType,
     ) -> bool:
+        """Return whether a serialized history already contains an action type."""
+
         for entry in history:
             action = entry.get("action", {})
             if action.get("action_type") == action_type.value:
@@ -430,6 +457,8 @@ class DemoPlatformAgentModel:
 
 
 def _extract_context_from_user_prompt(user_prompt: str) -> dict[str, Any]:
+    """Extract the serialized observation JSON embedded in a clerk user prompt."""
+
     if _OBSERVATION_JSON_MARKER not in user_prompt:
         raise ValueError("user prompt missing observation marker")
     _, payload = user_prompt.split(_OBSERVATION_JSON_MARKER, maxsplit=1)
@@ -437,6 +466,8 @@ def _extract_context_from_user_prompt(user_prompt: str) -> dict[str, Any]:
 
 
 def _serialize_offer(offer: Offer) -> dict[str, Any]:
+    """Convert an `Offer` into a JSON-serializable prompt object."""
+
     return {
         "offer_id": offer.offer_id,
         "category": offer.category,
@@ -448,6 +479,8 @@ def _serialize_offer(offer: Offer) -> dict[str, Any]:
 
 
 def _serialize_history_entry(entry: HistoryEntry) -> dict[str, Any]:
+    """Convert one structured history entry into a prompt-friendly dictionary."""
+
     action = entry.action
     return {
         "turn_index": entry.turn_index,
@@ -463,11 +496,15 @@ def _serialize_history_entry(entry: HistoryEntry) -> dict[str, Any]:
 
 
 def _parse_action(raw_output: str) -> SelectionAction:
+    """Parse raw model text into an executable `SelectionAction`."""
+
     payload = _load_json_object(raw_output)
     return _parse_action_payload_object(payload)
 
 
 def _parse_action_payload_object(payload: dict[str, Any]) -> SelectionAction:
+    """Parse either a direct action object or a wrapper with `next_action`."""
+
     if "next_action" in payload:
         next_action = payload["next_action"]
         if not isinstance(next_action, dict):
@@ -477,6 +514,8 @@ def _parse_action_payload_object(payload: dict[str, Any]) -> SelectionAction:
 
 
 def _extract_working_belief(payload: dict[str, Any]) -> Mapping[str, Any] | None:
+    """Extract the optional non-executable model belief trace from a payload."""
+
     working_belief = payload.get("working_belief")
     if working_belief is None:
         return None
@@ -486,6 +525,8 @@ def _extract_working_belief(payload: dict[str, Any]) -> Mapping[str, Any] | None
 
 
 def _load_json_object(raw_output: str) -> dict[str, Any]:
+    """Load a JSON object from raw model text, including fenced code blocks."""
+
     text = raw_output.strip()
     if text.startswith("```"):
         lines = text.splitlines()
@@ -495,10 +536,3 @@ def _load_json_object(raw_output: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("model output must be a JSON object")
     return payload
-
-
-# Backward-compatible aliases for older imports.
-SingleAgentModel = PlatformAgentModel
-OpenAISingleAgentModel = OpenAIPlatformAgentModel
-PromptBasedSingleAgent = LLMPlatformAgent
-DemoSingleAgentModel = DemoPlatformAgentModel

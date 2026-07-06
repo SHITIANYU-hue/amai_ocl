@@ -14,7 +14,12 @@ from conversational_consumer_selection.schemas import (
 
 
 def parse_action_payload(payload: dict[str, Any]) -> SelectionAction:
-    """Convert one raw JSON action payload into a structured SelectionAction."""
+    """Convert one raw JSON action payload into a structured SelectionAction.
+
+    Input is a model- or policy-produced JSON-like dictionary containing
+    `action_type` and action-specific fields. The output is a validated
+    `SelectionAction`, or `ValueError` is raised for malformed values.
+    """
 
     if not isinstance(payload, dict):
         raise ValueError("action payload must be a JSON object")
@@ -38,7 +43,13 @@ def parse_action_payload(payload: dict[str, Any]) -> SelectionAction:
 
 
 def validate_action_against_observation(action: SelectionAction, observation: Observation) -> None:
-    """Ensure the chosen action is executable in the current observation."""
+    """Ensure the chosen action is executable in the current observation.
+
+    Inputs are a structured action and the public observation it was generated
+    from. The function returns `None` on success and raises `ValueError` when
+    the action references unknown offers, repeated clarification slots, or an
+    invalid commit sequence.
+    """
 
     offer_ids = {offer.offer_id for offer in observation.offers}
 
@@ -66,6 +77,8 @@ def validate_action_against_observation(action: SelectionAction, observation: Ob
 
 
 def _has_prior_recommendation_for_offer(observation: Observation, offer_id: str | None) -> bool:
+    """Return whether the history contains a recommendation for `offer_id`."""
+
     if offer_id is None:
         return False
     for entry in observation.history:

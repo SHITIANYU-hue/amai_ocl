@@ -38,6 +38,13 @@ class GreedySelectionPolicy:
     price_penalty: float = 0.01
 
     def act(self, observation: Observation) -> SelectionAction:
+        """Choose the next structured action from one public observation.
+
+        Input is the environment's current `Observation`. The returned
+        `SelectionAction` clarifies missing slots first, then commits the best
+        feasible offer under the revealed context.
+        """
+
         if self.clarify_missing_preferences:
             for slot in observation.available_clarification_slots:
                 if not clarification_slot_is_revealed(slot, observation.revealed_context):
@@ -49,6 +56,8 @@ class GreedySelectionPolicy:
         return SelectionAction.commit_selection(best_offer.offer_id)
 
     def _best_feasible_offer(self, observation: Observation) -> Offer | None:
+        """Return the best offer that satisfies currently revealed constraints."""
+
         feasible_offers = [
             offer for offer in observation.offers if self._is_explicitly_feasible(observation, offer)
         ]
@@ -57,6 +66,8 @@ class GreedySelectionPolicy:
         return max(feasible_offers, key=lambda offer: self._score_offer(observation, offer))
 
     def _score_offer(self, observation: Observation, offer: Offer) -> float:
+        """Score an offer using revealed preference weights and a price penalty."""
+
         score = 0.0
         for slot, weight in observation.revealed_context["preference_weights"].items():
             score += float(weight) * offer.attribute_values.get(slot, 0.0)
@@ -64,6 +75,8 @@ class GreedySelectionPolicy:
         return score
 
     def _is_explicitly_feasible(self, observation: Observation, offer: Offer) -> bool:
+        """Return whether an offer satisfies the currently revealed constraints."""
+
         if offer.category != observation.revealed_context["category"]:
             return False
         budget_max = observation.revealed_context["budget_max"]

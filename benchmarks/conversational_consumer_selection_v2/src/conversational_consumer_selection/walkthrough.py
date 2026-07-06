@@ -19,6 +19,8 @@ from conversational_consumer_selection.tasks import make_default_task
 
 
 def _render_action(action: SelectionAction) -> str:
+    """Render a structured action as a compact walkthrough label."""
+
     if action.slot is not None:
         return f"{action.action_type.value}(slot={action.slot})"
     if action.comparison_offer_id is not None:
@@ -32,6 +34,8 @@ def _render_action(action: SelectionAction) -> str:
 
 
 def main() -> None:
+    """Run the scripted single-episode walkthrough from the command line."""
+
     task = make_default_task(level=BenchmarkLevel.PARTIAL_INTENT)
     env = BestOfferSelectionEnv()
 

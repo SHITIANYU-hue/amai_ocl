@@ -20,7 +20,7 @@ Organizational Control Layer（OCL，组织控制层）。
 
 - [`aimai_ocl`](aimai_ocl) 中的 OCL 实现
 - [`scripts`](scripts) 中的实验脚本
-- [`benchmarks/conversational_consumer_selection_v1`](benchmarks/conversational_consumer_selection_v1)
+- [`benchmarks/conversational_consumer_selection_v2`](benchmarks/conversational_consumer_selection_v2)
   中的本地 benchmark 模块
 - [`tests`](tests) 中的测试
 
@@ -43,21 +43,31 @@ Organizational Control Layer（OCL，组织控制层）。
 
 - `AgenticPay`
   作为外部协商运行时与任务 substrate
-- `Conversational Consumer Selection V1`
-  作为本地的引导式商品选择 benchmark，用于研究用户意图不完整时的平台控制
+- `Conversational Consumer Selection V2`
+  作为本地的引导式商品选择与双智能体交易对话 benchmark，用于研究用户
+  意图不完整时的商品推荐、交易承诺和执行边界
 
 这个 benchmark 模块的说明见
-[`benchmarks/conversational_consumer_selection_v1/README.md`](benchmarks/conversational_consumer_selection_v1/README.md)。
-它对平台暴露的接口是：
+[`benchmarks/conversational_consumer_selection_v2/README.md`](benchmarks/conversational_consumer_selection_v2/README.md)。
+它保留原来的引导式选择接口：
 
 - 输入：`Observation`
 - 输出：`SelectionAction`
 
-并支持四种意图可见性设置：
+同时新增 transaction dialogue 层：buyer 与 seller/clerk LLM 互相看到的
+是自然语言对话；每轮 raw output 中的隐藏 `ENV_ACTION` 会被环境剥离，不会
+进入对方可见历史，只进入 event log 供协议检查、指标和未来 OCL integration
+使用。
+
+benchmark core 不直接实例化 OCL。OCL、prompt-policy、judge-review 以及
+audit/warning/blocking/memory 消融都应放在 integration 层，包裹 benchmark
+暴露的 parsed action 与 event log。
+
+它支持四种意图可见性设置：
 
 - `v0_structured`
-- `v1_direct_intent`
-- `v1_partial_intent`
+- `v2_direct_intent`
+- `v2_partial_intent`
 - `v2_hidden_intent`
 
 ## 仓库结构
@@ -65,7 +75,7 @@ Organizational Control Layer（OCL，组织控制层）。
 ```text
 aimai_ocl/
   controllers/    角色、门控、审计、升级、控制曲面
-  runners/        single-agent 与 OCL 执行路径
+  runners/        clerk-agent 与 OCL 执行路径
   adapters/       AgenticPay 适配层
   schemas/        动作、审计与约束 schema
 scripts/
@@ -73,7 +83,7 @@ scripts/
   run_batch_eval.py
   run_ablation_matrix.py
   run_tau_sweep.py
-benchmarks/conversational_consumer_selection_v1/
+benchmarks/conversational_consumer_selection_v2/
   src/conversational_consumer_selection/
   tests/
 tests/
@@ -98,7 +108,7 @@ pip install "git+https://github.com/SafeRL-Lab/AgenticPay.git"
 如果你也想把引导式商品选择 benchmark 当作包来运行，可以再执行：
 
 ```bash
-pip install -e benchmarks/conversational_consumer_selection_v1
+pip install -e benchmarks/conversational_consumer_selection_v2
 ```
 
 使用 OpenAI 后端时，需要设置：
@@ -123,7 +133,7 @@ python scripts/run_batch_eval.py \
   --arms single,ocl_full \
   --episodes-per-arm 20 \
   --seed-base 42 \
-  --output-dir outputs/main_result_v1
+  --output-dir outputs/main_result_v2
 ```
 
 运行 `tau` 控制强度 sweep：
@@ -133,14 +143,14 @@ python scripts/run_tau_sweep.py \
   --tau-values 0.0,0.25,0.5,0.75,1.0 \
   --episodes-per-arm 20 \
   --seed-base 42 \
-  --output-root outputs/tau_sweep_v1
+  --output-root outputs/tau_sweep_v2
 ```
 
 运行引导式商品选择 benchmark demo：
 
 ```bash
-cd benchmarks/conversational_consumer_selection_v1
-PYTHONPATH=src python -m conversational_consumer_selection.single_agent_demo --backend demo
+cd benchmarks/conversational_consumer_selection_v2
+PYTHONPATH=src python -m conversational_consumer_selection.clerk_agent_demo --backend demo
 ```
 
 ## 关键文件
@@ -155,9 +165,13 @@ PYTHONPATH=src python -m conversational_consumer_selection.single_agent_demo --b
   实验指标与汇总字段
 - [`aimai_ocl/plugin_registry.py`](aimai_ocl/plugin_registry.py)
   算法注册表与实验组合
-- [`benchmarks/conversational_consumer_selection_v1/src/conversational_consumer_selection/env.py`](benchmarks/conversational_consumer_selection_v1/src/conversational_consumer_selection/env.py)
+- [`benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/env.py`](benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/env.py)
   引导式商品选择环境
-- [`benchmarks/conversational_consumer_selection_v1/src/conversational_consumer_selection/schemas.py`](benchmarks/conversational_consumer_selection_v1/src/conversational_consumer_selection/schemas.py)
+- [`benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/transaction_env.py`](benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/transaction_env.py)
+  双智能体交易对话环境
+- [`benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/dialogue_actions.py`](benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/dialogue_actions.py)
+  隐藏 `ENV_ACTION` 解析与协议检查
+- [`benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/schemas.py`](benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/schemas.py)
   benchmark 输入输出契约
 
 ## 测试
@@ -171,7 +185,7 @@ pytest
 运行 benchmark 专项测试：
 
 ```bash
-pytest benchmarks/conversational_consumer_selection_v1/tests/test_benchmark.py
+pytest benchmarks/conversational_consumer_selection_v2/tests/test_benchmark.py
 ```
 
 ## 状态

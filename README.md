@@ -23,7 +23,7 @@ The current public codebase includes:
 - an OCL implementation in [`aimai_ocl`](aimai_ocl)
 - experiment scripts in [`scripts`](scripts)
 - a local benchmark module in
-  [`benchmarks/conversational_consumer_selection_v1`](benchmarks/conversational_consumer_selection_v1)
+  [`benchmarks/conversational_consumer_selection_v2`](benchmarks/conversational_consumer_selection_v2)
 - tests in [`tests`](tests)
 
 ## Main Components
@@ -45,22 +45,30 @@ The repository currently uses two benchmark layers:
 
 - `AgenticPay`
   is treated as an external negotiation/runtime substrate
-- `Conversational Consumer Selection V1`
-  is a local benchmark for platform-side guided selection under incomplete
-  user intent
+- `Conversational Consumer Selection V2`
+  is a local benchmark for controlled guided selection and dual-agent
+  transaction dialogue under incomplete buyer intent
 
 The benchmark module is documented in
-[`benchmarks/conversational_consumer_selection_v1/README.md`](benchmarks/conversational_consumer_selection_v1/README.md).
-It exposes a structured platform interface:
+[`benchmarks/conversational_consumer_selection_v2/README.md`](benchmarks/conversational_consumer_selection_v2/README.md).
+It preserves the original guided-selection interface:
 
 - input: `Observation`
 - output: `SelectionAction`
 
-and supports four visibility regimes:
+and also adds a transaction dialogue layer where buyer and seller/clerk LLMs
+exchange visible messages while hidden `ENV_ACTION` tags are stripped before
+the other agent sees them and recorded in an environment event log.
+
+The benchmark core does not instantiate OCL. OCL, prompt-policy, judge-review,
+and ablation arms belong in an integration layer that wraps the benchmark's
+parsed actions and event log.
+
+The benchmark supports four visibility regimes:
 
 - `v0_structured`
-- `v1_direct_intent`
-- `v1_partial_intent`
+- `v2_direct_intent`
+- `v2_partial_intent`
 - `v2_hidden_intent`
 
 ## Repository Layout
@@ -68,7 +76,7 @@ and supports four visibility regimes:
 ```text
 aimai_ocl/
   controllers/    role, gate, audit, escalation, control surface
-  runners/        single-agent and OCL execution paths
+  runners/        clerk-agent and OCL execution paths
   adapters/       AgenticPay integration
   schemas/        action, audit, and constraint schemas
 scripts/
@@ -76,7 +84,7 @@ scripts/
   run_batch_eval.py
   run_ablation_matrix.py
   run_tau_sweep.py
-benchmarks/conversational_consumer_selection_v1/
+benchmarks/conversational_consumer_selection_v2/
   src/conversational_consumer_selection/
   tests/
 tests/
@@ -101,7 +109,7 @@ pip install "git+https://github.com/SafeRL-Lab/AgenticPay.git"
 If you want to run the guided-selection benchmark as a package, also install:
 
 ```bash
-pip install -e benchmarks/conversational_consumer_selection_v1
+pip install -e benchmarks/conversational_consumer_selection_v2
 ```
 
 For OpenAI-backed runs, set:
@@ -126,7 +134,7 @@ python scripts/run_batch_eval.py \
   --arms single,ocl_full \
   --episodes-per-arm 20 \
   --seed-base 42 \
-  --output-dir outputs/main_result_v1
+  --output-dir outputs/main_result_v2
 ```
 
 Run a `tau` sweep over control strength:
@@ -136,14 +144,14 @@ python scripts/run_tau_sweep.py \
   --tau-values 0.0,0.25,0.5,0.75,1.0 \
   --episodes-per-arm 20 \
   --seed-base 42 \
-  --output-root outputs/tau_sweep_v1
+  --output-root outputs/tau_sweep_v2
 ```
 
 Run the guided-selection benchmark demo:
 
 ```bash
-cd benchmarks/conversational_consumer_selection_v1
-PYTHONPATH=src python -m conversational_consumer_selection.single_agent_demo --backend demo
+cd benchmarks/conversational_consumer_selection_v2
+PYTHONPATH=src python -m conversational_consumer_selection.clerk_agent_demo --backend demo
 ```
 
 ## Key Files
@@ -158,9 +166,13 @@ PYTHONPATH=src python -m conversational_consumer_selection.single_agent_demo --b
   experiment metrics and summary fields
 - [`aimai_ocl/plugin_registry.py`](aimai_ocl/plugin_registry.py)
   algorithm registries and experiment composition
-- [`benchmarks/conversational_consumer_selection_v1/src/conversational_consumer_selection/env.py`](benchmarks/conversational_consumer_selection_v1/src/conversational_consumer_selection/env.py)
+- [`benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/env.py`](benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/env.py)
   guided-selection environment
-- [`benchmarks/conversational_consumer_selection_v1/src/conversational_consumer_selection/schemas.py`](benchmarks/conversational_consumer_selection_v1/src/conversational_consumer_selection/schemas.py)
+- [`benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/transaction_env.py`](benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/transaction_env.py)
+  dual-agent transaction dialogue environment
+- [`benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/dialogue_actions.py`](benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/dialogue_actions.py)
+  hidden `ENV_ACTION` parser and protocol checks
+- [`benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/schemas.py`](benchmarks/conversational_consumer_selection_v2/src/conversational_consumer_selection/schemas.py)
   benchmark I/O contract
 
 ## Testing
@@ -174,15 +186,13 @@ pytest
 Run the benchmark-specific tests:
 
 ```bash
-pytest benchmarks/conversational_consumer_selection_v1/tests/test_benchmark.py
+pytest benchmarks/conversational_consumer_selection_v2/tests/test_benchmark.py
 ```
 
 ## Status
 
 This is an active research repository. Interfaces and experiment settings may
 still evolve as the paper implementation is refined.
-
-## Citation
 
 ## Citation
 
@@ -199,4 +209,3 @@ If you find this work useful, please consider citing:
   url          = {https://arxiv.org/abs/2606.04306}
 }
 ```
-
