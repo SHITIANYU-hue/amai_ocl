@@ -199,13 +199,10 @@ still evolve as the paper implementation is refined.
 If you find this work useful, please consider citing:
 
 ```bibtex
-@misc{shi2026organizationalcontrol,
+@misc{anonymous2026organizationalcontrol,
   title        = {Organizational Control Layer: Governance Infrastructure at the Execution Boundary of LLM Agent Systems},
-  author       = {Shi, Tianyu and Mo, Yang and Liu, Yiou and Hao, Zhuonan and Wang, Yin and Hu, Wenzhuo and Yu, Nan and Zhou, Meng and Yu, Jiangbo},
+  author       = {Anonymous Authors},
   year         = {2026},
-  eprint       = {2606.04306},
-  archivePrefix = {arXiv},
-  primaryClass = {cs.MA},
-  url          = {https://arxiv.org/abs/2606.04306}
+  note         = {Anonymous manuscript under review}
 }
 ```

@@ -71,6 +71,13 @@ The transaction dialogue layer keeps two histories:
 - `event_log`
   visible message plus parsed hidden action and validation results
 
+Buyer and seller/clerk are configured as separate participants. The benchmark
+does not assume both sides use the same model: `BuyerDialogueAgent` owns the
+buyer model and private selection context, while `SellerDialogueAgent` owns the
+seller/clerk model, product catalog, and platform rules. Experiments may choose
+to point both agents at the same backend, but that is an experimental setting,
+not a benchmark assumption.
+
 Convergence is detected from actions, not inferred from free text. The minimal
 success condition is a seller `commit` for a product followed by a buyer
 `accept` for the same product before `max_turns`.
@@ -144,6 +151,8 @@ Add `--debug-actions` if you want to inspect the structured control actions.
   rule-based user simulator
 - [`src/conversational_consumer_selection/agents/dialogue_prompts.py`](src/conversational_consumer_selection/agents/dialogue_prompts.py)
   AgenticPay-style buyer and seller prompt builders
+- [`src/conversational_consumer_selection/agents/transaction_agents.py`](src/conversational_consumer_selection/agents/transaction_agents.py)
+  independent buyer/seller agent wrappers and transaction-dialogue runner
 - [`src/conversational_consumer_selection/agents/clerk_agent.py`](src/conversational_consumer_selection/agents/clerk_agent.py)
   minimal clerk agent
 - [`src/conversational_consumer_selection/clerk_agent_demo.py`](src/conversational_consumer_selection/clerk_agent_demo.py)

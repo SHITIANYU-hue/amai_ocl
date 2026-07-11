@@ -25,6 +25,7 @@ class RunConfig:
     model: str = "gpt-4o-mini"
     provider: str = "openai"
     api_key_env: str = "OPENAI_API_KEY"
+    base_url: str | None = None
     api_sleep_sec: float = 4.0
     seed: int = 42
     max_rounds: int = 10
@@ -46,6 +47,7 @@ class ArmConfig:
 
     name: str
     ocl: bool = False
+    baseline_mode: str | None = None
     coordinator_mode: str = "default"
     risk_rewrite_threshold: float = 0.45
     risk_block_threshold: float = 0.75
@@ -59,6 +61,15 @@ class ArmConfig:
 # Pre-defined arms
 ARMS: dict[str, ArmConfig] = {
     "single": ArmConfig(name="single", ocl=False),
+    "prompt_policy": ArmConfig(
+        name="prompt_policy", ocl=False, baseline_mode="prompt_policy",
+    ),
+    "price_floor_guard": ArmConfig(
+        name="price_floor_guard", ocl=False, baseline_mode="price_floor_guard",
+    ),
+    "reference_monitor": ArmConfig(
+        name="reference_monitor", ocl=False, baseline_mode="reference_monitor",
+    ),
     "ocl_full": ArmConfig(name="ocl_full", ocl=True),
     "ocl_strict": ArmConfig(
         name="ocl_strict", ocl=True,

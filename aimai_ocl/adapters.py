@@ -26,7 +26,17 @@ from aimai_ocl.schemas import (
 # ---------------------------------------------------------------------------
 
 OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
-SUPPORTED_PROVIDERS = ("openai",)
+DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+SUPPORTED_PROVIDERS = ("openai", "dashscope")
+
+
+def load_env_file() -> None:
+    """Load local .env if python-dotenv is available."""
+    try:
+        from dotenv import load_dotenv  # noqa: PLC0415
+    except ModuleNotFoundError:
+        return
+    load_dotenv()
 
 
 def load_agenticpay() -> Any:
@@ -229,18 +239,35 @@ class RateLimitRetryWrapper:
         return getattr(self._client, name)
 
 
-def build_model_client(*, provider: str = "openai", model: str, api_key_env: str = OPENAI_API_KEY_ENV, api_sleep_sec: float = 4.0) -> Any:
+def build_model_client(
+    *,
+    provider: str = "openai",
+    model: str,
+    api_key_env: str = OPENAI_API_KEY_ENV,
+    base_url: str | None = None,
+    api_sleep_sec: float = 4.0,
+) -> Any:
     """Instantiate a model client for the configured provider."""
-    if provider != "openai":
+    load_env_file()
+    provider_name = provider.lower()
+    if provider_name not in SUPPORTED_PROVIDERS:
         raise RuntimeError(f"Unsupported provider: '{provider}'. Supported: {SUPPORTED_PROVIDERS}")
     try:
         from agenticpay.models.openai_llm import OpenAILLM  # noqa: PLC0415
     except ModuleNotFoundError as exc:
         raise RuntimeError(f"Missing dependency: {exc}") from exc
-    api_key = os.getenv(api_key_env)
+
+    if provider_name == "dashscope":
+        if api_key_env == OPENAI_API_KEY_ENV:
+            api_key_env = "DASHSCOPE_API_KEY"
+        base_url = _clean_env_value(base_url) or _clean_env_value(os.getenv("DASHSCOPE_BASE_URL")) or DEFAULT_DASHSCOPE_BASE_URL
+    else:
+        base_url = _clean_env_value(base_url) or _clean_env_value(os.getenv("OPENAI_BASE_URL"))
+
+    api_key = _clean_env_value(os.getenv(api_key_env))
     if not api_key:
         raise RuntimeError(f"{api_key_env} is not set.")
-    client = OpenAILLM(model=model, api_key=api_key)
+    client = OpenAILLM(model=model, api_key=api_key, base_url=base_url)
     return RateLimitRetryWrapper(client, api_sleep_sec=api_sleep_sec)
 
 
@@ -251,7 +278,9 @@ def build_agents(
     seller_min_price: float,
     provider: str = "openai",
     api_key_env: str = OPENAI_API_KEY_ENV,
+    base_url: str | None = None,
     api_sleep_sec: float = 4.0,
+    seller_system_prompt_suffix: str | None = None,
 ) -> tuple[Any, Any]:
     """Build AgenticPay buyer/seller agents. Returns (buyer, seller)."""
     try:
@@ -260,11 +289,42 @@ def build_agents(
     except ModuleNotFoundError as exc:
         raise RuntimeError(f"Missing dependency: {exc}") from exc
 
-    buyer_model = build_model_client(provider=provider, model=model, api_key_env=api_key_env, api_sleep_sec=api_sleep_sec)
-    seller_model = build_model_client(provider=provider, model=model, api_key_env=api_key_env, api_sleep_sec=api_sleep_sec)
+    buyer_model = build_model_client(
+        provider=provider,
+        model=model,
+        api_key_env=api_key_env,
+        base_url=base_url,
+        api_sleep_sec=api_sleep_sec,
+    )
+    seller_model = build_model_client(
+        provider=provider,
+        model=model,
+        api_key_env=api_key_env,
+        base_url=base_url,
+        api_sleep_sec=api_sleep_sec,
+    )
     buyer = BuyerAgent(model=buyer_model, buyer_max_price=buyer_max_price)
-    seller = SellerAgent(model=seller_model, seller_min_price=seller_min_price)
+    seller_kwargs = {"model": seller_model, "seller_min_price": seller_min_price}
+    if seller_system_prompt_suffix is not None:
+        seller_kwargs["system_prompt_suffix"] = seller_system_prompt_suffix
+    seller = SellerAgent(**seller_kwargs)
     return buyer, seller
+
+
+def _clean_env_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if (
+        (cleaned.startswith('"') and cleaned.endswith('"'))
+        or (cleaned.startswith("'") and cleaned.endswith("'"))
+        or (cleaned.startswith("\u201c") and cleaned.endswith("\u201d"))
+        or (cleaned.startswith("\u2018") and cleaned.endswith("\u2019"))
+    ):
+        cleaned = cleaned[1:-1].strip()
+    return cleaned or None
 
 
 # ---------------------------------------------------------------------------

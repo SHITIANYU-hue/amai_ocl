@@ -17,6 +17,8 @@ _ENV_MAP: dict[str, str] = {
     "AIMAI_SEED": "seed",
     "AIMAI_MAX_ROUNDS": "max_rounds",
     "AIMAI_API_KEY_ENV": "api_key_env",
+    "AIMAI_BASE_URL": "base_url",
+    "OPENAI_BASE_URL": "base_url",
     "AIMAI_API_SLEEP_SEC": "api_sleep_sec",
 }
 
@@ -94,6 +96,7 @@ def _to_run_config(values: dict[str, Any]) -> RunConfig:
         model=_get("model", str, "gpt-4o-mini"),
         provider=_get("provider", str, "openai"),
         api_key_env=_get("api_key_env", str, "OPENAI_API_KEY"),
+        base_url=_get("base_url", str, None),
         api_sleep_sec=_get("api_sleep_sec", float, 4.0),
         seed=_get("seed", int, 42),
         max_rounds=_get("max_rounds", int, 10),

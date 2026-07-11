@@ -16,6 +16,7 @@ from conversational_consumer_selection import (
     CLARIFICATION_BUDGET_MAX,
     CLARIFICATION_MUST_HAVE_PREFIX,
     CLARIFICATION_PREFERENCE_PREFIX,
+    BuyerDialogueAgent,
     DemoClerkAgentModel,
     DialogueActor,
     LLMClerkAgent,
@@ -38,6 +39,8 @@ from conversational_consumer_selection import (
     render_buyer_response,
     render_history_transcript,
     run_benchmark,
+    run_transaction_dialogue,
+    SellerDialogueAgent,
     summarize_records,
     TransactionDialogueEnv,
 )
@@ -712,6 +715,78 @@ class TransactionDialogueTests(unittest.TestCase):
         self.assertIn("will be removed before the buyer sees your message", seller_prompt)
         self.assertIn("### ENV_ACTION", buyer_prompt)
         self.assertIn("### ENV_ACTION", seller_prompt)
+
+    def test_transaction_dialogue_runner_uses_independent_buyer_and_seller_models(
+        self,
+    ) -> None:
+        class ScriptedDialogueModel:
+            """Test double that returns scripted raw dialogue messages."""
+
+            def __init__(self, outputs: list[str]) -> None:
+                """Store scripted outputs and initialize call tracing."""
+
+                self.outputs = list(outputs)
+                self.calls: list[dict[str, str]] = []
+
+            def generate(self, *, system_prompt: str, user_prompt: str) -> str:
+                """Record the prompt pair and return the next scripted output."""
+
+                self.calls.append(
+                    {
+                        "system_prompt": system_prompt,
+                        "user_prompt": user_prompt,
+                    }
+                )
+                return self.outputs.pop(0)
+
+        buyer_model = ScriptedDialogueModel(
+            [
+                (
+                    "I commute a lot, so portability matters.\n"
+                    '### ENV_ACTION {"actor":"buyer","type":"reveal_need",'
+                    '"slot":"preference.portability"} ###'
+                ),
+                (
+                    "That sounds promising. Please go ahead if it fits my budget.\n"
+                    '### ENV_ACTION {"actor":"buyer","type":"wait"} ###'
+                ),
+                (
+                    "That works for me. MAKE_DEAL\n"
+                    '### ENV_ACTION {"actor":"buyer","type":"accept",'
+                    '"product_id":"offer_budget"} ###'
+                ),
+            ]
+        )
+        seller_model = ScriptedDialogueModel(
+            [
+                (
+                    "I recommend StudioLite ANC for your commute and budget.\n"
+                    '### ENV_ACTION {"actor":"seller","type":"recommend",'
+                    '"product_id":"offer_budget"} ###'
+                ),
+                (
+                    "I can finalize StudioLite ANC now.\n"
+                    '### ENV_ACTION {"actor":"seller","type":"commit",'
+                    '"product_id":"offer_budget"} ###'
+                ),
+            ]
+        )
+
+        info = run_transaction_dialogue(
+            task=make_default_task(level=BenchmarkLevel.PARTIAL_INTENT),
+            buyer_agent=BuyerDialogueAgent(model=buyer_model),
+            seller_agent=SellerDialogueAgent(model=seller_model),
+        )
+
+        self.assertIsNot(buyer_model, seller_model)
+        self.assertEqual(3, len(buyer_model.calls))
+        self.assertEqual(2, len(seller_model.calls))
+        self.assertIn("private_selection_model", buyer_model.calls[0]["user_prompt"])
+        self.assertNotIn("product_catalog", buyer_model.calls[0]["user_prompt"])
+        self.assertIn("product_catalog", seller_model.calls[0]["user_prompt"])
+        self.assertNotIn("private_selection_model", seller_model.calls[0]["user_prompt"])
+        self.assertTrue(info["transaction_success"])
+        self.assertEqual("offer_budget", info["accepted_product_id"])
 
 
 class DialogueSurfaceTests(unittest.TestCase):

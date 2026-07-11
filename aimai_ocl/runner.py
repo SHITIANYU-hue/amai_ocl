@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
+import re
 from typing import Any
 
 from aimai_ocl.adapters import (
@@ -19,6 +20,13 @@ from aimai_ocl.control import (
 )
 from aimai_ocl.coordinator import Coordinator
 from aimai_ocl.schemas import ActionRole, AuditEvent, AuditEventType, EpisodeTrace
+from aimai_ocl.schemas import (
+    ConstraintCheck,
+    ConstraintSeverity,
+    ControlDecision,
+    ExecutableAction,
+    ViolationType,
+)
 
 # Terminal metrics keys extracted from AgenticPay final_info.
 _METRIC_KEYS = (
@@ -42,6 +50,7 @@ def run_episode(
     coordinator: Coordinator | None = None,
     audit_policy: AuditPolicy | None = None,
     enable_replan: bool = True,
+    baseline_mode: str | None = None,
 ) -> tuple[EpisodeTrace, dict[str, Any]]:
     """Run one negotiation episode.
 
@@ -115,15 +124,31 @@ def run_episode(
                 audit_policy=policy, enable_replan=enable_replan,
             )
         else:
-            # Baseline: passthrough with minimal audit
             seller_action = seller_agent.respond(
                 conversation_history=seller_history, current_state=observation,
             )
-            seller_text = _apply_passthrough(
-                trace=trace, text=seller_action,
-                actor_id=seller_actor_id, round_id=round_id,
-                audit_policy=policy,
-            )
+            if baseline_mode == "price_floor_guard":
+                seller_text = _apply_price_floor_guard(
+                    trace=trace, text=seller_action,
+                    actor_id=seller_actor_id, round_id=round_id,
+                    state={**observation, **{k: v for k, v in ctrl_state.items() if v is not None}},
+                    audit_policy=policy,
+                )
+            elif baseline_mode == "reference_monitor":
+                seller_text = _apply_reference_monitor(
+                    trace=trace, text=seller_action,
+                    actor_id=seller_actor_id, round_id=round_id,
+                    state={**observation, **{k: v for k, v in ctrl_state.items() if v is not None}},
+                    config=ctrl_cfg,
+                    audit_policy=policy,
+                )
+            else:
+                # Baseline: passthrough with minimal audit
+                seller_text = _apply_passthrough(
+                    trace=trace, text=seller_action,
+                    actor_id=seller_actor_id, round_id=round_id,
+                    audit_policy=policy,
+                )
 
         if seller_text is not None:
             trace.metadata.setdefault("executed_seller_actions", []).append(
@@ -220,6 +245,136 @@ def _apply_passthrough(
     return exe.final_text
 
 
+def _apply_price_floor_guard(
+    *,
+    trace: EpisodeTrace,
+    text: str | None,
+    actor_id: str,
+    round_id: int,
+    state: dict[str, Any],
+    audit_policy: AuditPolicy | None,
+) -> str | None:
+    """Apply a narrow price-only guardrail baseline.
+
+    This baseline deliberately ignores role, privacy, and high-risk checks. It
+    only clamps explicit seller prices into the configured buyer/seller bounds.
+    """
+    if text is None:
+        return None
+
+    raw = raw_action_from_text(actor_id, ActionRole.SELLER, text)
+    price = raw.proposed_price
+    buyer_max = _as_float(state.get("buyer_max_price"))
+    seller_min = _as_float(state.get("seller_min_price"))
+    final_text = text
+    final_price = price
+    checks: list[ConstraintCheck] = []
+
+    if price is None:
+        checks.append(ConstraintCheck(
+            constraint_id="price_floor_guard_format",
+            passed=True,
+            reason="No explicit seller price found; price guard does not apply.",
+        ))
+        decision = ControlDecision.APPROVE
+    else:
+        lower_bound = seller_min
+        upper_bound = buyer_max
+        clamped = price
+        if lower_bound is not None:
+            clamped = max(lower_bound, clamped)
+        if upper_bound is not None:
+            clamped = min(upper_bound, clamped)
+
+        passed = clamped == price
+        if lower_bound is not None and price < lower_bound:
+            checks.append(ConstraintCheck(
+                constraint_id="price_floor_guard_seller_floor",
+                passed=False,
+                severity=ConstraintSeverity.ERROR,
+                violation_type=ViolationType.SELLER_FLOOR_BREACH,
+                reason=f"Price {price:.2f} below seller floor {lower_bound:.2f}.",
+                metadata={"original_price": price, "clamped_price": clamped},
+            ))
+        else:
+            checks.append(ConstraintCheck(constraint_id="price_floor_guard_seller_floor", passed=True))
+
+        if upper_bound is not None and price > upper_bound:
+            checks.append(ConstraintCheck(
+                constraint_id="price_floor_guard_budget_cap",
+                passed=False,
+                severity=ConstraintSeverity.ERROR,
+                violation_type=ViolationType.BUDGET_EXCEEDED,
+                reason=f"Price {price:.2f} exceeds buyer max {upper_bound:.2f}.",
+                metadata={"original_price": price, "clamped_price": clamped},
+            ))
+        else:
+            checks.append(ConstraintCheck(constraint_id="price_floor_guard_budget_cap", passed=True))
+
+        if not passed:
+            final_text = _replace_last_dollar_price(text, clamped)
+            final_price = clamped
+        decision = ControlDecision.APPROVE if passed else ControlDecision.REWRITE
+
+    executable = ExecutableAction(
+        actor_id=raw.actor_id,
+        actor_role=raw.actor_role,
+        approved=True,
+        decision=decision,
+        final_text=final_text,
+        intent=raw.intent,
+        final_price=final_price,
+        metadata={"baseline_mode": "price_floor_guard"},
+    )
+    _add_event(trace, AuditEvent(
+        event_type=AuditEventType.CONSTRAINT_EVALUATED,
+        round_id=round_id,
+        actor_id=actor_id,
+        summary="Price-floor guard evaluated seller action.",
+        raw_action=raw,
+        executable_action=executable,
+        constraint_checks=checks,
+    ), audit_policy)
+    _add_event(trace, AuditEvent(
+        event_type=AuditEventType.ACTION_EXECUTED,
+        round_id=round_id,
+        actor_id=actor_id,
+        summary=f"Price-floor guard decision: {decision.value}",
+        raw_action=raw,
+        executable_action=executable,
+    ), audit_policy)
+    return executable.final_text.strip() or None
+
+
+def _apply_reference_monitor(
+    *,
+    trace: EpisodeTrace,
+    text: str | None,
+    actor_id: str,
+    round_id: int,
+    state: dict[str, Any],
+    config: ControlConfig | None,
+    audit_policy: AuditPolicy | None,
+) -> str | None:
+    """Apply a policy-only reference monitor baseline.
+
+    It reuses the same checks as OCL but does not coordinate, escalate, or
+    replan. Rejected actions are simply not executed.
+    """
+    if text is None:
+        return None
+
+    raw = raw_action_from_text(actor_id, ActionRole.SELLER, text)
+    result = apply_control(raw, state=state, round_id=round_id, config=config)
+    for ev in result.audit_events:
+        ev.metadata["baseline_mode"] = "reference_monitor"
+        _add_event(trace, ev, audit_policy)
+
+    if not result.executable.approved:
+        return None
+    return result.executable.final_text.strip() or None
+
+
 def _add_event(trace: EpisodeTrace, event: AuditEvent, policy: AuditPolicy | None) -> None:
     if policy is None or policy.should_record(event.event_type):
         trace.add_event(event)
@@ -230,3 +385,20 @@ def _normalize(text: str | None) -> str | None:
         return None
     s = text.strip()
     return s or None
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _replace_last_dollar_price(text: str, price: float) -> str:
+    matches = list(re.finditer(r"\$[\d,]+(?:\.\d+)?", text))
+    if not matches:
+        return f"{text.strip()} ${price:.2f}".strip()
+    last = matches[-1]
+    return f"{text[:last.start()]}${price:.2f}{text[last.end():]}"
