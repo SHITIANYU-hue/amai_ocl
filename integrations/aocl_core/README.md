@@ -29,3 +29,16 @@ offline. The core supports both proposal-level replay checks and conservative
 paired-rollout reports supplied by a host adapter; AgenticPay V2 uses complete
 fresh episodes for formal promotion. Evaluation runs never mutate the active
 bank.
+
+The self-improving object is the governance state, not the underlying model:
+
+```text
+Bank X_k -> governed host episodes -> feedback -> Candidate
+         -> independent validation -> fixed update rule -> Bank X_{k+1}
+```
+
+The core separates three responsibilities that should not be conflated:
+semantic or structured verification produces outcome evidence; a promotion
+policy maps that evidence to an update decision; versioning applies an approved
+update without mutating earlier Bank versions. Host integrations choose and
+record their experimental promotion policy.

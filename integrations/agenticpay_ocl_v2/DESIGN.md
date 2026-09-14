@@ -95,6 +95,36 @@ Every stage is persisted before the next begins. `--resume` reuses completed
 episodes and model calls, while artifacts that fail a machine-checkable schema
 or execution invariant are rejected and regenerated.
 
+## Self-improving mechanism
+
+The adaptive object is the external governance state. Let `H` be the immutable
+Hard Safety Envelope and `X_k` the frozen Constraint Bank at update step `k`:
+
+```text
+OCL_k = (H, X_k)
+
+X_k -> governed episode -> failure feedback -> Candidate
+    -> Parent/Trial verification -> update rule -> X_{k+1}
+```
+
+The buyer, seller, Meta-Agent, semantic gate, and Judge may all be implemented
+with pretrained models, but this loop does not update their parameters. The
+Meta-Agent proposes a discrete textual change; verification measures its effect
+on complete host episodes; deterministic code decides whether the proposed
+change becomes part of a new immutable Bank version. Later episodes retrieve
+from that version, close the feedback loop, and may expose the next residual
+failure.
+
+The mechanism therefore contains three separate components:
+
+- Candidate generation transforms experience into a proposed governance change;
+- verification estimates the behavioral effect of that change;
+- the update rule controls whether accumulated experience changes the active Bank.
+
+Constraint retrieval and semantic activation are the online use of learned
+experience. Candidate generation and Bank version updates occur between
+episodes. Evaluation episodes never update the Bank being evaluated.
+
 The batch experiment applies the same loop repeatedly. Each derivation episode
 runs against the latest frozen version. Episodes with no observed failure do not
 create a new version; artifacts distinguish intrinsically safe handling from a
@@ -130,6 +160,21 @@ one candidate-attributed intercept, no increase in blocked safe proposal steps,
 and no decrease in task successes. `REVISE` constraints receive one bounded
 regeneration attempt by default; the unsafe original proposal is never
 executed.
+
+This conjunction remains available as `--promotion-policy strict`. It is
+intentionally conservative but can reject a useful specialized Candidate merely
+because a fresh Trial episode contains a different residual violation. It can
+also make promotion sensitive to stochastic differences between separately
+generated Parent and Trial conversations.
+
+The default `--promotion-policy marginal` instead requires a
+Candidate-attributed intercept and positive observed safety gain while enforcing
+zero budgets for increases in executed violations, blocked-safe steps, and loss
+of valid successes. It does not require the Trial to remove every residual
+violation and does not protect unsafe raw task completion. The selected mode,
+policy version, and complete parameter set are frozen in `config.json`; the
+policy is also recorded when a new Bank version is promoted. This makes the
+strict-versus-marginal comparison an explicit update-rule experiment.
 
 The formal batch also reports four arms: no OCL, hard OCL, hard OCL with all
 generated constraints added without validation, and hard OCL with only promoted

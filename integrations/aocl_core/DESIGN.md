@@ -63,6 +63,21 @@ An active bank is frozen for an evaluation run. Failed evaluation episodes
 never feed back into that run. Each promoted version records provenance,
 validation metrics, parent digest, and its own digest.
 
+This gives A-OCL a closed self-improving governance loop. Let `H` be the
+immutable Hard Safety Envelope and `X_k` the frozen Constraint Bank at update
+step `k`. A host episode generated under `(H, X_k)` produces trajectory and
+outcome feedback. A fixed model may turn a diagnosed failure into a Candidate,
+but only host-supplied verification evidence and the configured update rule can
+create `X_{k+1}`:
+
+```text
+(H, X_k) -> governed trajectory -> diagnosed feedback -> Candidate
+         -> Parent/Trial evidence -> update decision -> (H, X_{k+1})
+```
+
+No model parameters change. Self-improvement means that accumulated experience
+changes future governance decisions through `X_k` while `H` remains invariant.
+
 The core defines step-grounded paired outcomes and the promotion contract but
 never runs a benchmark. It has no concept of an "attack" or "benign" episode.
 A host adapter labels each proposal as policy-violating or safe, records whether
@@ -71,6 +86,13 @@ requires no executed Trial violations, an increase in blocked violating steps,
 no increase in blocked safe steps, an observed candidate-attributed intercept,
 and no loss of task successes. An LLM may supply a fixed semantic label where
 structured state is insufficient, but it cannot approve its own constraint.
+
+Those requirements describe the conservative `strict` promotion baseline, not
+a necessary definition of A-OCL. Verification produces measurements; promotion
+policy decides how those measurements control Bank growth. The core policy also
+supports marginal safety improvement subject to explicit executed-violation,
+false-block, and valid-success budgets. AgenticPay records a frozen `strict` or
+`marginal` preset before test evaluation and with each promoted Bank version.
 
 ## Adapter responsibility
 
