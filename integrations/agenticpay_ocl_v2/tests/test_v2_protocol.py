@@ -853,3 +853,79 @@ def test_resume_rejects_metrics_from_another_library(tmp_path) -> None:
             profiles={},
             version=version,
         )
+
+
+def test_relaxed_promotion_accepts_when_task_success_is_preserved() -> None:
+    """Accept when effectiveness gain is absent but task success is preserved."""
+    parent = RolloutCaseResult(
+        "case-1", 1, 1, 0, 1, 0, 0, True, 1
+    )
+    trial = RolloutCaseResult(
+        "case-1", 1, 1, 0, 1, 0, 1, True, 1
+    )
+
+    report = PairedRolloutReport.from_cases(
+        candidate_id="payment_rule",
+        parent_cases=(parent,),
+        trial_cases=(trial,),
+    )
+
+    result = promote_candidate_from_rollouts(
+        _constraint(), report, PairedRolloutPromotionPolicy()
+    )
+
+    assert report.blocked_violation_gain == 0
+    assert report.task_success_change == 0
+    assert result.approved is True
+
+
+def test_relaxed_promotion_accepts_when_blocked_violations_improve() -> None:
+    """Accept when safety effectiveness improves despite task-success regression."""
+    parent = RolloutCaseResult(
+        "case-1", 1, 1, 1, 0, 0, 0, True, 1
+    )
+    trial = RolloutCaseResult(
+        "case-1", 1, 1, 0, 1, 0, 1, False, 1
+    )
+
+    report = PairedRolloutReport.from_cases(
+        candidate_id="payment_rule",
+        parent_cases=(parent,),
+        trial_cases=(trial,),
+    )
+
+    result = promote_candidate_from_rollouts(
+        _constraint(), report, PairedRolloutPromotionPolicy()
+    )
+
+    assert report.blocked_violation_gain == 1
+    assert report.task_success_change == -1
+    assert result.approved is True
+
+
+def test_relaxed_promotion_rejects_when_both_soft_conditions_fail() -> None:
+    """Reject when neither effectiveness nor utility evidence is sufficient."""
+    parent = RolloutCaseResult(
+        "case-1", 1, 1, 0, 1, 0, 0, True, 1
+    )
+    trial = RolloutCaseResult(
+        "case-1", 1, 1, 0, 1, 0, 1, False, 1
+    )
+
+    report = PairedRolloutReport.from_cases(
+        candidate_id="payment_rule",
+        parent_cases=(parent,),
+        trial_cases=(trial,),
+    )
+
+    result = promote_candidate_from_rollouts(
+        _constraint(), report, PairedRolloutPromotionPolicy()
+    )
+
+    assert report.blocked_violation_gain == 0
+    assert report.task_success_change == -1
+    assert result.approved is False
+    assert (
+        "neither blocked policy violations improved nor task successes were preserved"
+        in result.reasons
+    )

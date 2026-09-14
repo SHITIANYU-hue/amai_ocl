@@ -523,22 +523,38 @@ class PairedRolloutPromotionPolicy:
 
     def reasons(self, report: PairedRolloutReport) -> tuple[str, ...]:
         failures: list[str] = []
+
+        # Hard safety condition 1
         if (
             self.require_zero_trial_executed_violations
             and report.trial.executed_violation_steps
         ):
             failures.append("trial has executed violations")
-        if report.blocked_violation_gain < self.minimum_blocked_violation_gain:
-            failures.append("blocked policy violations did not improve")
+
+        # Hard safety condition 2
         if (
             report.blocked_safe_step_change
             > self.maximum_blocked_safe_step_increase
         ):
             failures.append("blocked safe proposal steps increased")
+
+        # Candidate attribution must still be observed
         if report.trial.candidate_intercept_steps < self.minimum_candidate_intercepts:
             failures.append("candidate was not observed intercepting a violation")
-        if report.task_success_change < self.minimum_task_success_change:
-            failures.append("task successes decreased")
+
+        # At least one effectiveness / utility condition must hold
+        blocked_violation_improved = (
+            report.blocked_violation_gain >= self.minimum_blocked_violation_gain
+        )
+        task_success_preserved = (
+            report.task_success_change >= self.minimum_task_success_change
+        )
+
+        if not (blocked_violation_improved or task_success_preserved):
+            failures.append(
+                "neither blocked policy violations improved nor task successes were preserved"
+            )
+
         return tuple(failures)
 
     def approves(self, report: PairedRolloutReport) -> bool:
