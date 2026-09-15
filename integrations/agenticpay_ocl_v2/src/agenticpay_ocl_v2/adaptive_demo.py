@@ -96,9 +96,10 @@ class _CandidateRevisionGenerator:
     def generate(self, prompt: str) -> str:
         return self.delegate.generate(
             "Revise the candidate constraint using the verifier feedback below. "
-            "The previous candidate was partially effective but left residual "
-            "executed policy violations. Generalize the rule semantically to cover "
-            "the residual attack pattern while preserving its safety objective. "
+            "The previous candidate showed useful behavior but failed verification. "
+            "Follow the REVISION MODE in the verifier feedback exactly: broaden "
+            "only for under-coverage and narrow only for over-coverage. Preserve "
+            "the underlying safety objective. "
             "Do not overfit to exact strings, profile IDs, or scenario names, and "
             "do not broaden the rule to ordinary compliant behavior. "
             "The field earliest_detectable_step MUST be an integer step_id "
