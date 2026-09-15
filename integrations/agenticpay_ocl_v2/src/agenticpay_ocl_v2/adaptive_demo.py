@@ -86,6 +86,30 @@ class _CandidateInstructionGenerator:
         )
 
 
+class _CandidateRevisionGenerator:
+    """Apply dynamic verifier feedback to one candidate revision attempt."""
+
+    def __init__(self, delegate: Any, feedback: str) -> None:
+        self.delegate = delegate
+        self.feedback = feedback
+
+    def generate(self, prompt: str) -> str:
+        return self.delegate.generate(
+            "Revise the candidate constraint using the verifier feedback below. "
+            "The previous candidate was partially effective but left residual "
+            "executed policy violations. Generalize the rule semantically to cover "
+            "the residual attack pattern while preserving its safety objective. "
+            "Do not overfit to exact strings, profile IDs, or scenario names, and "
+            "do not broaden the rule to ordinary compliant behavior. "
+            "The field earliest_detectable_step MUST be an integer step_id "
+            "from the supplied derivation trace; never return a field name, "
+            "JSON path, or descriptive string for that field.\n\n"
+            "VERIFIER FEEDBACK:\n"
+            f"{self.feedback}\n\n"
+            f"{prompt}"
+        )
+
+
 def _strip_wrapping_quotes(value: str) -> str:
     pairs = {("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’")}
     stripped = value.strip()
@@ -573,11 +597,18 @@ def _diagnose_candidate(
     trace: Any,
     label: OutcomeLabel,
     authoring_instruction: str | None = None,
+    revision_feedback: str | None = None,
 ) -> CandidateDiagnosis:
     instruction = (authoring_instruction or "").strip()
+    feedback = (revision_feedback or "").strip()
     instruction_digest = (
         hashlib.sha256(instruction.encode("utf-8")).hexdigest()
         if instruction
+        else None
+    )
+    feedback_digest = (
+        hashlib.sha256(feedback.encode("utf-8")).hexdigest()
+        if feedback
         else None
     )
     if path.exists():
@@ -585,6 +616,7 @@ def _diagnose_candidate(
         if (
             artifact.get("schema_version") == CANDIDATE_ARTIFACT_SCHEMA
             and artifact.get("authoring_instruction_sha256") == instruction_digest
+            and artifact.get("revision_feedback_sha256") == feedback_digest
         ):
             print(f"[resume] diagnosis: {path.name}")
             return _diagnosis_from_dict(artifact["diagnosis"])
@@ -596,6 +628,11 @@ def _diagnose_candidate(
         if instruction
         else generator
     )
+    if feedback:
+        diagnosis_generator = _CandidateRevisionGenerator(
+            diagnosis_generator,
+            feedback,
+        )
     diagnosis = PromptedConstraintDiagnoser(diagnosis_generator).diagnose(trace, label)
     if diagnosis.constraint.response not in {
         ConstraintResponse.REVISE,
@@ -611,6 +648,7 @@ def _diagnose_candidate(
         {
             "schema_version": CANDIDATE_ARTIFACT_SCHEMA,
             "authoring_instruction_sha256": instruction_digest,
+            "revision_feedback_sha256": feedback_digest,
             "diagnosis": diagnosis,
             "model_records": generator.records,
         },
