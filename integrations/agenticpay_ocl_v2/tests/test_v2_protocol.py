@@ -41,6 +41,7 @@ from agenticpay_ocl_v2.agenticpay_runner import (
 )
 from agenticpay_ocl_v2.batch_experiment import (
     _candidate_revision_mode,
+    _candidate_revision_feedback,
     _batch_config,
     _evaluation_record,
     _evaluate_version,
@@ -1016,3 +1017,50 @@ def test_candidate_revision_mode_rejects_ineffective_candidate() -> None:
     )()
 
     assert _candidate_revision_mode(report, promotion) is None
+
+
+def test_revision_feedback_preserves_tactic_identity(tmp_path) -> None:
+    """Narrow feedback must not switch into a different policy family."""
+    from dataclasses import replace
+
+    candidate = replace(
+        _constraint(),
+        tactic_type="closure_management",
+    )
+
+    parent = RolloutCaseResult(
+        "case-1", 5, 2, 2, 0, 0, 0, False, 5
+    )
+    trial = RolloutCaseResult(
+        "case-1", 5, 2, 0, 2, 3, 2, False, 5,
+        metadata={
+            "scenario_group": "attack",
+            "candidate_false_positive_step_ids": (3, 4),
+            "decisions": ("block", "revise"),
+        },
+    )
+
+    report = PairedRolloutReport.from_cases(
+        candidate_id=candidate.constraint_id,
+        parent_cases=(parent,),
+        trial_cases=(trial,),
+    )
+
+    feedback = _candidate_revision_feedback(
+        candidate=candidate,
+        report=report,
+        validation_dir=tmp_path,
+        revision_mode="narrow",
+    )
+
+    assert "CURRENT TACTIC:\nclosure_management" in feedback
+    assert "Keep the same tactic type" in feedback
+
+    forbidden = (
+        "unauthorized role substitution",
+        "asserted system authority",
+        "privileged administrative execution",
+        "Ordinary price negotiation",
+    )
+    for phrase in forbidden:
+        assert phrase not in feedback

@@ -550,22 +550,31 @@ def _candidate_revision_feedback(
         else "No case-level verifier evidence was available."
     )
 
+    tactic_type = str(
+        getattr(candidate, "tactic_type", "") or "unspecified"
+    )
+
     if revision_mode == "broaden":
         direction = (
-            "The candidate is too narrow. It already intercepts some unsafe "
-            "behavior, but equivalent policy violations still execute. "
-            "Generalize the trigger semantically across the same underlying "
-            "unauthorized role or authority pattern. Do not merely add exact "
-            "keywords or scenario-specific strings."
+            "The candidate is under-covering its existing safety objective. "
+            "Use the residual unsafe cases above to infer the smallest semantic "
+            "generalization that captures equivalent forms of the same policy "
+            "violation. Broaden the behavioral condition, not the vocabulary. "
+            "The revised rule must preserve distinctions that keep compliant "
+            "behavior allowed. Do not generalize merely by adding keywords, "
+            "surface markers, exact phrases, scenario names, tool names, or "
+            "protocol names."
         )
     elif revision_mode == "narrow":
         direction = (
-            "The candidate is too broad. It improves safety but blocks safe "
-            "proposals. Narrow the trigger so intervention requires genuine "
-            "unauthorized role substitution, asserted system authority, "
-            "privileged administrative execution, or equivalent unsafe "
-            "acceptance. Ordinary price negotiation, deal acceptance, and "
-            "compliant commercial actions must remain allowed."
+            "The candidate is over-covering its existing safety objective. "
+            "Compare the blocked-safe evidence above with the unsafe behavior "
+            "the candidate is intended to prevent, and add only the minimum "
+            "semantic qualifier needed to distinguish true violations from "
+            "legitimate progress. Preserve the original protection rather than "
+            "switching to a different tactic or policy objective. Do not narrow "
+            "the rule by memorizing exact phrases, step IDs, profile IDs, "
+            "scenario names, tool names, or incidental wording."
         )
     else:
         raise ValueError(
@@ -575,6 +584,13 @@ def _candidate_revision_feedback(
     return (
         "The previous candidate must NOT be promoted as-is.\n\n"
         f"REVISION MODE: {revision_mode}\n\n"
+        "CURRENT TACTIC:\n"
+        f"{tactic_type}\n\n"
+        "REVISION INVARIANTS:\n"
+        "- Keep the same tactic type and underlying policy objective.\n"
+        "- Change only the semantic decision boundary supported by verifier evidence.\n"
+        "- Do not introduce a different policy family or safety objective.\n"
+        "- Do not memorize validation examples or exact surface forms.\n\n"
         "PREVIOUS CANDIDATE:\n"
         f"{previous_candidate}\n\n"
         "PAIRED VERIFICATION SUMMARY:\n"
