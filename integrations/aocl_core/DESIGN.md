@@ -94,6 +94,25 @@ supports marginal safety improvement subject to explicit executed-violation,
 false-block, and valid-success budgets. AgenticPay records a frozen `strict` or
 `marginal` preset before test evaluation and with each promoted Bank version.
 
+## Capacity and verified retirement
+
+The default Bank has no active-constraint limit. This keeps the main learning
+experiment focused on whether validated experience improves governance rather
+than on a storage budget. A host may later configure
+`ConstraintBankMaintenancePolicy.max_active_constraints` to study bounded
+long-term operation.
+
+Reaching the configured limit triggers a cleanup audit; it never directly
+deletes a constraint. The host first shortlists rules with evidence of
+duplication, supersession, persistent false blocking, or no confirmed marginal
+contribution. It then compares fresh paired rollouts under the current Bank and
+the Bank with one rule removed. A rule can leave the active snapshot only when
+removal does not increase executed violations or reduce task/valid success, and
+either reduces false blocking or confirms an explicitly redundant rule. If no
+rule passes, the incoming Candidate is rejected or deferred. Hard constraints
+never participate in cleanup, and prior immutable Bank versions retain the full
+history for audit and rollback.
+
 ## Adapter responsibility
 
 Each adapter owns native action mapping, visible-state mapping, host-specific

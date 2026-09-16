@@ -19,6 +19,12 @@ from .library import (
     FrozenConstraintLibrary,
     SoftConstraint,
 )
+from .maintenance import (
+    ConstraintBankMaintenancePolicy,
+    ConstraintRetirementDecision,
+    ConstraintRetirementReport,
+    ConstraintUsageStats,
+)
 from .policies import ControlMode
 from .retrieval import DeterministicLexicalRetriever
 from .runtime import IntegrationOCLRuntime
@@ -28,8 +34,12 @@ __all__ = [
     "CheckLevel",
     "CheckResult",
     "ConstraintResponse",
+    "ConstraintBankMaintenancePolicy",
+    "ConstraintRetirementDecision",
+    "ConstraintRetirementReport",
     "ConstraintScope",
     "ConstraintStatus",
+    "ConstraintUsageStats",
     "ControlDecision",
     "ControlMode",
     "DecisionType",

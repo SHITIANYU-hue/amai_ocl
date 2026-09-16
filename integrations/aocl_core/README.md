@@ -42,3 +42,17 @@ semantic or structured verification produces outcome evidence; a promotion
 policy maps that evidence to an update decision; versioning applies an approved
 update without mutating earlier Bank versions. Host integrations choose and
 record their experimental promotion policy.
+
+Bank growth is unlimited by default:
+
+```python
+from aocl_core import ConstraintBankMaintenancePolicy
+
+maintenance = ConstraintBankMaintenancePolicy(
+    max_active_constraints=None,
+)
+```
+
+Setting a positive limit only triggers verified cleanup. The maintenance API
+shortlists suspicious rules and evaluates paired `Bank` versus `Bank - rule`
+rollouts; it does not delete a rule merely because it is old or rarely used.
