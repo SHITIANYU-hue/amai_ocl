@@ -129,7 +129,7 @@ activated + response=escalate → ESCALATE
 
 多个 Hard 和 Soft 检查由固定优先级聚合。Gate LLM 不直接调用工具或环境；Host 只执行 OCL 允许的动作。
 
-### 4. 通用离线更新流程
+### 4. Self-Improving Governance Loop
 
 Constraint Bank 不在正在进行的 episode 中自行修改。更新发生在 episode 结束后的离线闭环：
 
@@ -142,10 +142,14 @@ Meta-Agent 总结候选 Constraint
    ↓
 Parent / Trial 重新运行完整 episode
    ↓
-固定代码标准决定是否晋升
+Verifier 产生验证证据，固定 Update Rule 决定是否晋升
    ↓
 生成新的冻结 Bank 版本
+   ↓
+新版本控制之后的 episode，并产生下一轮反馈
 ```
+
+因此，这里的 self-improving 不是“模型训练自己”，而是治理状态通过运行经验发生离散更新：当前 Bank 影响动作控制，受控行为产生新轨迹，失败轨迹产生 Candidate，验证后的 Candidate 再改变未来的 Bank。模型参数和 Hard Safety Envelope 都不在这个循环中更新。
 
 具体过程如下：
 
@@ -155,7 +159,7 @@ Parent / Trial 重新运行完整 episode
 4. **配对验证**：在同一组未参与候选生成的攻击与正常 case 上分别运行：
    - Parent：当前冻结 Bank；
    - Trial：当前 Bank 加候选 Constraint。
-5. **固定晋升**：当前规则要求 Trial 无执行违规、被拦截的违规 proposal 增加、所有 case 中被误拦的安全 proposal 不增加、候选规则确实在对应 action 上触发、任务成功不下降。
+5. **固定更新**：Verifier 先生成 Parent/Trial 的结果证据，再由预先登记的 Update Rule 决定 Candidate 是否晋升。当前代码提供严格基线与边际更新两种可冻结模式；暂缓状态仍是尚未实现的后续选项。
 6. **冻结版本**：候选通过后产生不可变子版本，例如 `L000 → L001`。正在进行的验证和评估不更新当前版本。
 
 LLM 可以提出候选规则并进行必要的语义标注，但不能自行批准规则。晋升由 Parent/Trial 结果和固定代码标准决定。
@@ -230,7 +234,7 @@ valid_success
 
 这样 LLM 只处理无法闭式表达的语义问题，不能根据自己看到的最终结果决定 Candidate 是否晋升。
 
-#### 5.4 数学表示与当前固定晋升条件
+#### 5.4 Self-Improving Mechanism 的数学表示
 
 设不可变的 Hard Safety Envelope 为 $H$，第 $k$ 轮冻结的 Constraint Bank 为 $X_k$，则当前 OCL 状态可以写为：
 
@@ -238,21 +242,32 @@ $$
 \mathrm{OCL}_k=(H,X_k).
 $$
 
-Meta-Agent 根据失败反馈 $F_k$ 生成候选 Constraint：
+系统在 $(H,X_k)$ 控制下与环境交互并产生轨迹：
 
 $$
-c_k=T_\theta(X_k,F_k), \qquad \widetilde{X}_{k+1}=X_k\cup\{c_k\}.
+\tau_k \sim P\!\left(\tau\mid \pi_{\mathrm{agent}},\mathcal{E},H,X_k\right).
 $$
 
-$T_\theta$ 是由已训练 LLM 实现的离散文本变换，不是梯度下降，当前系统也不更新模型参数。$\widetilde{X}_{k+1}$ 只是用于验证的 Trial Bank，不是已经生效的新版本。
+诊断器从实际轨迹与环境结果 $o_k$ 中提取反馈，Meta-Agent 再生成候选 Constraint：
+
+$$
+F_k=D(\tau_k,o_k), \qquad
+c_k=T_\theta(X_k,F_k).
+$$
+
+$T_\theta$ 是由已训练 LLM 实现的离散文本变换，不是梯度下降，当前系统也不更新模型参数。候选加入当前 Bank 后形成只用于验证的 Trial Bank：
+
+$$
+\widetilde{X}_{k+1}=X_k\cup\{c_k\}.
+$$
 
 令 $R(X)$ 表示 Bank 在固定 validation cases 上得到的结果向量：
 
 $$
-R(X)=(\text{执行违规},\ \text{拦截违规},\ \text{误拦安全动作},\ \text{候选实际拦截},\ \text{任务成功}).
+R(X)=(\text{执行违规},\ \text{拦截违规},\ \text{误拦安全动作},\ \text{候选实际拦截},\ \text{有效任务成功}).
 $$
 
-$R$ 不是单一 reward，因此不能简单写成 $R(\widetilde{X}_{k+1})\ge R(X_k)$。实现中使用固定的确定性门函数 $G$ 比较 Trial 和 Parent：
+$R$ 不是单一 reward，因此不能简单写成 $R(\widetilde{X}_{k+1})\ge R(X_k)$。Verifier 负责产生 $R$；预先固定的确定性门函数 $G$ 才是 Update Rule：
 
 $$
 X_{k+1}=
@@ -262,7 +277,26 @@ X_k, & \text{否则}.
 \end{cases}
 $$
 
-这里的 $G$ 就是 Update Rule：它不理解自然语言，而是按照预先固定的指标条件决定接受或拒绝 Candidate。
+整个 self-improving mechanism 可以简写为：
+
+$$
+X_{k+1}
+=
+U\!\left(
+X_k,
+T_\theta\!\left(X_k,D(\tau_k,o_k)\right),
+V\!\left(X_k,\widetilde{X}_{k+1}\right)
+\right),
+$$
+
+其中 $V$ 是 Verifier，$U$ 是根据 $G$ 执行的版本更新。这个闭环是：
+
+$$
+X_k \rightarrow \tau_k \rightarrow F_k \rightarrow c_k
+\rightarrow V \rightarrow X_{k+1}.
+$$
+
+#### 5.5 当前实现与下一轮实验变量
 
 设 Parent 指标为 `P`，Trial 指标为 `T`。Candidate 只有同时满足以下条件才进入 Active Bank：
 
@@ -278,11 +312,21 @@ T.candidate_intercept_steps >= 1
 T.task_successes - P.task_successes >= 0
 ```
 
-如果任一条件失败，Candidate 被标记为 `rejected`，Active Bank 保持 Parent 版本，不产生新的 `Lxxx`。通过后才生成不可变子版本，并将 Parent/Trial 指标、来源 episode、晋升策略和 Bank digest 写入 manifest。
+这是 `strict` 模式采用的保守基线，不是 self-improving mechanism 的定义。已有 GPT 和 Qwen 小规模实验表明，这个合取条件可能过强：一条 Candidate 即使能够拦截自己覆盖的违规，也可能因为 Trial 中存在另一类残余违规而被整体拒绝；同时，小规模 Parent/Trial 的独立生成会让晋升结果受随机对话影响。
 
-当前的 **Verifier** 不是单个模型，而是四部分共同组成的经验验证流程：Hard Validators 检查可计算条件；独立语义 Judge 标注无法形式化的语义违规；Host 提供真实执行和任务结果；确定性代码计算 $R$ 并执行 $G$。Candidate 生成模型只能提出修改，不能批准自己的修改。
+当前 batch runner 已将 Update Rule 实现为可记录的宏观控制变量：
 
-#### 5.5 可审计产物
+- **严格基线**：保留上述全部条件；
+- **边际更新（默认）**：不要求单条 Candidate 清除所有残余违规，但要求它至少直接拦截一次违规并产生正向安全增益；执行违规、误拦和 `valid_success` 当前都采用零退化预算；
+- **暂缓状态（未实现）**：未来可将有局部收益但证据不足的 Candidate 保存在 pending artifacts 中，等待更多独立证据，而不立即进入 Active Bank。
+
+运行时可使用 `--promotion-policy marginal` 或 `--promotion-policy strict`。选中的模式、策略版本和全部参数都会写入 `config.json`；晋升时还会随 Bank manifest 保存。旧实验配置未记录该字段时按历史 `strict` 语义恢复。
+
+如果任一版本的规则通过，系统才生成不可变子版本，并将 Parent/Trial 指标、来源 episode、晋升策略、阈值和 Bank digest 写入 manifest。Bank 的质量不能用规则数量衡量，只能通过冻结版本在独立 profile 上表现出的行为结果衡量。
+
+当前的 **Verifier** 不是单个模型，而是四部分共同产生经验验证证据：Hard Validators 检查可计算条件；独立语义 Judge 标注无法形式化的语义违规；Host 提供真实执行和任务结果；确定性代码将这些记录聚合为 $R$。Verifier 到此为止，随后由独立的 Update Rule $G$ 读取 $R$ 并决定是否晋升。Candidate 生成模型只能提出修改，不能批准自己的修改。
+
+#### 5.6 可审计产物
 
 每次验证至少保存：
 
@@ -297,7 +341,7 @@ libraries/Lxxx/manifest.json   父版本、策略、验证报告和 digest
 
 因此可以事后复查“规则从哪里来、在哪些 case 上验证、为什么晋升、最终进入了哪个 Bank 版本”。
 
-#### 5.6 当前 Verification 的局限
+#### 5.7 当前 Verification 的局限
 
 当前 protocol 比 LLM 自评分更可复现，但还不是绝对真值：
 

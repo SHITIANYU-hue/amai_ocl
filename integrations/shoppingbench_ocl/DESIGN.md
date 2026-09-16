@@ -2,7 +2,12 @@
 
 ## Status
 
-Planned, not implemented. ShoppingBench remains external. No benchmark code,
+The minimal product compatibility probe is implemented. It imports an external
+ShoppingBench checkout and exercises the upstream prompt, message parser, tool
+dispatcher, and LLM loop against a three-product fixture. It has been exercised
+against upstream commit `2f4d132500d4962d7ee3143e103b93499c82aca0`.
+
+The A-OCL runtime interception adapter remains planned. No benchmark code,
 dataset, search index, or evaluation logic is vendored here.
 
 ## Intended boundary
@@ -48,3 +53,17 @@ Implementation starts only after `aocl_core` and the CoffeeBench adapter have a
 stable action/outcome contract. It should add only native mapping, validators,
 and a runner; it must reuse the core library, retrieval, evaluator, audit, and
 offline learning pipeline.
+
+## First runnable slice
+
+`shoppingbench_ocl.product_probe` answers one deliberately narrow question:
+can this repository drive a real ShoppingBench product episode before the
+large product corpus is installed? It replaces `find_product` and
+`view_product_information` with deterministic fixture data and records
+`recommend_product` and `terminate`. Everything that defines the dialogue loop
+remains upstream-owned.
+
+This is a compatibility and wiring test, not an A-OCL effectiveness experiment.
+The next slice will intercept `recommend_product` immediately before upstream
+tool execution, translate it to a shared `ProposedAction`, and return the A-OCL
+decision through ShoppingBench's native observation channel.

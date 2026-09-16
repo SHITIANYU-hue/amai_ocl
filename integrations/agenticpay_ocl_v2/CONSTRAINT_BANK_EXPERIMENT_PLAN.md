@@ -49,6 +49,34 @@ The two loops are operationally separate but connected over time: a new Bank
 changes later OCL decisions, which produces new trajectories for the next
 offline update round.
 
+### Self-improving state transition
+
+Let `H` be the immutable Hard Safety Envelope and `X_k` the frozen Constraint
+Bank at update step `k`. An episode produced under `(H, X_k)` yields trajectory
+`tau_k` and observable outcome `o_k`. Diagnosis and Candidate generation propose
+a discrete change, while verification and the update rule decide whether that
+change becomes persistent:
+
+```text
+feedback_k  = D(tau_k, o_k)
+candidate_k = T_theta(X_k, feedback_k)
+trial_k     = X_k + candidate_k
+evidence_k  = V(X_k, trial_k; validation set)
+X_{k+1}     = U(X_k, candidate_k, evidence_k)
+```
+
+The closed loop is therefore:
+
+```text
+X_k -> governed trajectories -> feedback -> Candidate
+    -> verification -> update -> X_{k+1}
+```
+
+`T_theta` may be implemented by a pretrained LLM, but its parameters are not
+updated. The system improves by changing the external governance state `X_k`.
+Verifier `V` produces evidence; update rule `U` decides how that evidence changes
+the Bank. They are related but not interchangeable.
+
 ## 3. Data Separation
 
 Each tactic must have three disjoint profile sets:
@@ -163,11 +191,11 @@ For Parent and Trial, compute at least:
   activation on the same `action_id`;
 - `task_successes`: episodes satisfying the environment task outcome;
 - `valid_successes`: episodes that complete successfully without an executed
-  violation;
+  violation or a blocked-safe proposal;
 - `total_rounds` and model-call cost as secondary efficiency metrics.
 
-For the first small experiment, promotion is a deterministic rule rather than a
-single weighted reward:
+The `strict` implementation mode uses a deterministic conjunction rather than
+a single weighted reward:
 
 ```python
 promote = (
@@ -179,9 +207,35 @@ promote = (
 )
 ```
 
-This strict rule is deliberately conservative. If it rejects every candidate
-in a larger experiment, tolerances may be specified before rerunning the
-experiment; thresholds must not be changed after inspecting test results.
+This strict rule is deliberately conservative, but it is not the definition of
+self-improvement. It can reject a specialized Candidate that produces a real
+intercept merely because another residual violation appears in a fresh Trial
+episode. It also treats raw task completion as preferable even when completion
+contains a policy violation.
+
+The batch runner also implements a risk-bounded `marginal` policy, which is the
+default for new runs. It requires:
+
+```python
+marginally_admissible = (
+    trial.candidate_intercept_steps >= minimum_intercepts
+    and trial.executed_violation_steps
+        <= parent.executed_violation_steps + executed_violation_budget
+    and trial.blocked_safe_steps
+        <= parent.blocked_safe_steps + false_block_budget
+    and trial.valid_successes
+        >= parent.valid_successes - valid_success_budget
+    and observed_safety_gain >= minimum_safety_gain
+)
+```
+
+Unlike the strict baseline, this policy does not require one Candidate to remove
+all residual violations. A Candidate that exceeds a pre-registered risk budget
+is rejected. A separate `defer` state remains a proposed extension and is not
+part of the current implementation.
+
+All budgets and thresholds must be chosen on validation data and frozen before
+test evaluation. They must be serialized with the resulting Bank version.
 
 If multiple candidates pass, select them by the following fixed order:
 
@@ -262,5 +316,27 @@ experience-derived candidate constraints are admitted only when they improve
 paired fresh-rollout outcomes on disjoint validation episodes without observed
 regression on benign behavior or valid task completion.
 
+Bank size is not a quality metric. A larger Bank may contain redundant,
+overgeneralized, or conflicting constraints. Bank quality is measured only by
+the behavior of a frozen version on disjoint validation and test episodes.
+
 If an outcome cannot be measured by structured environment state, a fixed test
 label, or a declared semantic Judge, it is not used as evidence for promotion.
+
+## 12. Open Decisions for the Next Experiment
+
+The following choices must be fixed before launching the next result-producing
+run:
+
+1. how runs are allocated between the implemented strict and marginal promotion
+   conditions;
+2. the false-block, executed-violation, and valid-success budgets;
+3. whether Candidate curation runs off, in shadow mode, or in enforce mode;
+4. the number of independent Parent/Trial repetitions used to reduce rollout
+   variance;
+5. whether one fixed Judge labels every model condition or each provider uses
+   its own Judge;
+6. the exact derivation, validation, and frozen test manifests.
+
+These are experimental design choices, not values that may be adjusted after
+test outcomes are observed.

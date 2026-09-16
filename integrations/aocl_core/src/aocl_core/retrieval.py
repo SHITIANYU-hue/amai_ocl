@@ -14,11 +14,11 @@ _TOKEN_RE = re.compile(r"\w+", flags=re.UNICODE)
 
 
 def normalize_text(value: str) -> str:
-    return " ".join(_TOKEN_RE.findall(value.casefold()))
+    return " ".join(_TOKEN_RE.findall(value.casefold().replace("_", " ")))
 
 
 def tokens(value: str) -> frozenset[str]:
-    return frozenset(_TOKEN_RE.findall(value.casefold()))
+    return frozenset(_TOKEN_RE.findall(value.casefold().replace("_", " ")))
 
 
 def _visible_strings(value: Any) -> list[str]:
@@ -27,6 +27,7 @@ def _visible_strings(value: Any) -> list[str]:
     if isinstance(value, Mapping):
         result: list[str] = []
         for key in sorted(value):
+            result.append(str(key))
             result.extend(_visible_strings(value[key]))
         return result
     if isinstance(value, (tuple, list)):
@@ -38,7 +39,7 @@ def _visible_strings(value: Any) -> list[str]:
 
 
 def observable_query(action: ProposedAction, context: ObservableContext) -> str:
-    parts: list[str] = []
+    parts: list[str] = [action.action_type]
     parts.extend(_visible_strings(context.dialogue))
     parts.extend(_visible_strings(context.visible_state))
     if action.visible_text:

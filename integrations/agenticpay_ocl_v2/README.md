@@ -8,6 +8,32 @@ passed to `env.step()`.
 For a Chinese overview of the Constraint Bank's role, online decision path,
 and offline update protocol, see [`CONSTRAINT_BANK_ZH.md`](CONSTRAINT_BANK_ZH.md).
 
+## What self-improves
+
+AgenticPay V2 is a reference integration of a self-improving governance loop.
+The buyer, seller, and gate model weights remain fixed. What changes is the
+external, versioned Constraint Bank used by OCL:
+
+```text
+frozen Bank X_k
+  -> controls new seller proposals
+  -> produces an observable episode and outcome
+  -> failed behavior is diagnosed into a Candidate
+  -> Parent and Parent + Candidate are validated
+  -> the update rule promotes or rejects the Candidate
+  -> frozen Bank X_{k+1}
+```
+
+The mechanism can be summarized as
+
+```text
+X_{k+1} = U(X_k, candidate(X_k, episode feedback), verification evidence).
+```
+
+This is self-improvement at the governance-state level, not model fine-tuning,
+reinforcement learning, or unrestricted prompt rewriting. The immutable Hard
+Safety Envelope remains active across every Bank version.
+
 ## Install
 
 Install the shared core and this adapter together:
@@ -46,8 +72,9 @@ This command starts with an empty `L000`, runs a real failing derivation
 episode, obtains a blinded LLM semantic label with deterministic execution
 aggregation, asks a separate Meta-Agent call to diagnose a candidate constraint,
 runs complete Parent and Parent + Candidate episodes on one held-out attack and
-one benign profile, promotes it under a fixed outcome rule to immutable `L001`,
-and compares `L000` with `L001` on a held-out profile:
+one benign profile, promotes it under a fixed outcome rule only if validation
+passes, and compares the resulting frozen version with `L000` on a held-out
+profile:
 
 ```bash
 export OPENAI_API_KEY=...
@@ -94,6 +121,26 @@ one bounded revision attempt when a constraint carries corrective guidance.
 Every candidate triggers fresh Parent and Trial conversations; old proposals are
 not used as the promotion result. The default run also produces the four-arm
 ablation. Use `--skip-ablation` only for a cheaper development run.
+
+The batch runner exposes two frozen promotion policies. `marginal` is the
+default: it does not require one Candidate to remove every residual violation,
+but it requires a Candidate-attributed intercept, positive observed safety gain,
+no increase in executed violations or blocked-safe steps, and no decrease in
+`valid_success`. `strict` preserves the previous conjunctive gate, including
+zero executed Trial violations and no loss of raw task successes. The selected
+mode and all thresholds are serialized in `config.json` and Bank manifests.
+
+Use the strict policy as an update-rule control condition:
+
+```bash
+agenticpay-ocl-v2-batch-experiment \
+  --promotion-policy strict
+```
+
+The current code still returns only promote or reject. A future experiment may
+add a pending/defer state for Candidates with positive but insufficient
+evidence.
+
 For a cheaper end-to-end smoke run:
 
 ```bash
