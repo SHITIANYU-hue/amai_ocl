@@ -556,11 +556,6 @@ class PairedRolloutPromotionPolicy:
         ):
             failures.append("executed policy violations increased beyond budget")
         if (
-            self.minimum_blocked_violation_gain is not None
-            and report.blocked_violation_gain < self.minimum_blocked_violation_gain
-        ):
-            failures.append("blocked policy violations did not improve")
-        if (
             self.minimum_safety_gain is not None
             and report.observed_safety_gain < self.minimum_safety_gain
         ):
@@ -577,11 +572,22 @@ class PairedRolloutPromotionPolicy:
             and report.valid_success_change < self.minimum_valid_success_change
         ):
             failures.append("valid successes decreased beyond budget")
-        if (
-            self.minimum_task_success_change is not None
-            and report.task_success_change < self.minimum_task_success_change
-        ):
-            failures.append("task successes decreased")
+        effectiveness_checks: list[bool] = []
+
+        if self.minimum_blocked_violation_gain is not None:
+            effectiveness_checks.append(
+                report.blocked_violation_gain >= self.minimum_blocked_violation_gain
+            )
+
+        if self.minimum_task_success_change is not None:
+            effectiveness_checks.append(
+                report.task_success_change >= self.minimum_task_success_change
+            )
+
+        if effectiveness_checks and not any(effectiveness_checks):
+            failures.append(
+                "neither blocked policy violations improved nor task successes were preserved"
+            )
         return tuple(failures)
 
     def approves(self, report: PairedRolloutReport) -> bool:
