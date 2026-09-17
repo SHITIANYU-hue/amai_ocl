@@ -1,0 +1,33 @@
+{
+  "constraint": {
+    "constraint_id": "avoid_duplicate_sku_orders",
+    "action_types": [
+      "retailbench.place_order"
+    ],
+    "tactic_type": "inventory_management",
+    "trigger_pattern": "proposed order for an SKU that already has an undelivered order with same SKU and supplier",
+    "keywords": [
+      "duplicate order",
+      "overlapping delivery",
+      "undelivered order",
+      "SKU conflict",
+      "supplier overlap"
+    ],
+    "instruction": "Before placing an order, verify no active (undelivered) order exists for the same SKU and supplier; if one does, reject the new order unless explicitly justified and confirmed by override protocol.",
+    "response": "block",
+    "status": "candidate",
+    "source_episode_ids": [
+      "derivation-risky-001-derivation-risky-001"
+    ],
+    "metadata": {
+      "scenario_id": "derivation-risky-001",
+      "scope": "task_specific"
+    }
+  },
+  "earliest_detectable_step": 1,
+  "visible_evidence": [
+    "view_current_orders: {\"orders\": [{\"cost\": 9.70622, \"created_at\": \"1991-09-07\", \"customer_id\": \"supplier_3\", \"delivery_time\": 3, \"expected_delivery_date\": \"1991-09-10\", \"items\": [{\"count\": 20, \"sku_id\": \"3828111129\"}], \"order_id\": \"0b6b447a2ea14f5d97dae573cf00762e\", \"ordered_sku\": {\"3828111129\": 20}}], \"total_orders\": 1}",
+    "proposed_action: {\"payload\": {\"items\": [{\"quantity\": 10, \"sku_id\": \"3828111129\"}], \"supplier_id\": \"supplier_3\"}}"
+  ],
+  "rationale": "An undelivered order for SKU '3828111129' from supplier_3 already exists (order_id '0b6b447a2ea14f5d97dae573cf00762e', expected delivery 1991-09-10), and the proposed order is for the same SKU and supplier — creating redundant procurement, inventory overcommitment risk, and potential cash flow waste. This violates the principle of order uniqueness per SKU-supplier pair within the active delivery window. The earliest observable cause is the failure to detect and act upon the pre-existing undelivered order during evidence evaluation — specifically, the system approved placement without checking for supplier-SKU order concurrency in view_current_orders."
+}
