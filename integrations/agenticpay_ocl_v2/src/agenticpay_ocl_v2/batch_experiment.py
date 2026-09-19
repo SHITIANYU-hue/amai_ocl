@@ -12,6 +12,10 @@ import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from aocl_core.candidate_curation_gate import (
+    CandidateCurationGate,
+    CandidateCurationResult,
+)
 from aocl_core.json_utils import jsonable
 from aocl_core.learning import (
     PairedRolloutPromotionPolicy,
@@ -202,6 +206,7 @@ def _batch_config(args: argparse.Namespace) -> dict[str, Any]:
             "parameters": jsonable(promotion_policy),
         },
         "run_ablations": not args.skip_ablation,
+        "candidate_curation_gate_enabled": bool(args.candidate_curation_gate),
         "tactic_types": tactics,
         "adversarial_profiles": str(adversarial_path),
         "benign_profiles": str(benign_path),
@@ -471,6 +476,26 @@ def _unique_candidate(
         replacement = f"{base}__{suffix}"
         suffix += 1
     return replace(candidate, constraint_id=replacement)
+
+
+def _run_candidate_curation_gate(
+    *,
+    enabled: bool,
+    candidate: SoftConstraint,
+    diagnosis: Any,
+    trace: Any,
+    parent: LibraryVersion,
+) -> CandidateCurationResult | None:
+    """Run the learning-time Candidate Curation Gate only when enabled."""
+    if not enabled:
+        return None
+
+    return CandidateCurationGate().evaluate(
+        candidate=candidate,
+        diagnosis=diagnosis,
+        trace=trace,
+        bank=parent.library,
+    )
 
 
 def _candidate_revision_mode(
@@ -758,7 +783,12 @@ def _learning_step(
             dict(config.get("candidate_instruction_skill") or {}).get("content")
         ),
     )
-    candidate = _unique_candidate(diagnosis.constraint, parent.library, profile.profile_id)
+    candidate = _unique_candidate(
+        diagnosis.constraint,
+        parent.library,
+        profile.profile_id,
+    )
+    diagnosis = replace(diagnosis, constraint=candidate)
     _write_json(step_dir / "candidate_used.json", candidate)
     report = _paired_rollout_validation(
         step_dir / "paired_validation",
@@ -825,6 +855,10 @@ def _learning_step(
             parent.library,
             f"{profile.profile_id}__rev1",
         )
+        revised_diagnosis = replace(
+            revised_diagnosis,
+            constraint=revised_candidate,
+        )
 
         _write_json(
             step_dir / "candidate_revised_used.json",
@@ -854,6 +888,7 @@ def _learning_step(
         )
 
         candidate = revised_candidate
+        diagnosis = revised_diagnosis
         report = revised_report
         promotion = revised_promotion
 
@@ -880,6 +915,66 @@ def _learning_step(
 
         _write_json(outcome_path, outcome)
         return outcome
+    gate_enabled = bool(
+        config.get("candidate_curation_gate_enabled", False)
+    )
+
+    curation = _run_candidate_curation_gate(
+        enabled=gate_enabled,
+        candidate=promotion.constraint,
+        diagnosis=diagnosis,
+        trace=trace,
+        parent=parent,
+    )
+
+    gate_record = {
+        "enabled": gate_enabled,
+        "decision": (
+            curation.decision.value
+            if curation is not None
+            else "bypassed"
+        ),
+        "reasons": (
+            list(curation.reasons)
+            if curation is not None
+            else []
+        ),
+        "duplicate_of": (
+            curation.duplicate_of
+            if curation is not None
+            else None
+        ),
+    }
+    _write_json(
+        step_dir / "candidate_curation_gate.json",
+        gate_record,
+    )
+
+    if curation is not None and not curation.accepted:
+        outcome = {
+            "schema_version": LEARNING_OUTCOME_SCHEMA,
+            "profile_id": profile.profile_id,
+            "status": f"curation_{curation.decision.value}",
+            "parent_version": parent.version_id,
+            "version_id": parent.version_id,
+            "reasons": curation.reasons,
+            "candidate": candidate.to_dict(),
+            "paired_validation": jsonable(report),
+            "candidate_curation_gate": gate_record,
+            "revision_attempted": revision_attempted,
+            "revision_mode": revision_mode,
+        }
+
+        if revision_attempted:
+            outcome["original_candidate"] = original_candidate.to_dict()
+            outcome["initial_reasons"] = original_promotion.reasons
+            outcome["initial_paired_validation"] = jsonable(
+                original_report
+            )
+
+        _write_json(outcome_path, outcome)
+        return outcome
+
     version_id = f"L{next_version_number:03d}"
     version_path = store.root / version_id
     if version_path.exists():
@@ -902,6 +997,7 @@ def _learning_step(
         "candidate_id": candidate.constraint_id,
         "candidate": candidate.to_dict(),
         "paired_validation": jsonable(report),
+        "candidate_curation_gate": gate_record,
         "library_digest": child.library.digest,
     }
     _write_json(outcome_path, outcome)
@@ -1278,6 +1374,17 @@ def run_batch_experiment(args: argparse.Namespace) -> tuple[Path, dict[str, Any]
     )
     baseline = curve[0]
     final = curve[-1]
+
+    gate_decision_counts: dict[str, int] = {}
+    for outcome in outcomes:
+        gate_info = outcome.get("candidate_curation_gate")
+        if not gate_info:
+            continue
+        decision = str(gate_info.get("decision", "unknown"))
+        gate_decision_counts[decision] = (
+            gate_decision_counts.get(decision, 0) + 1
+        )
+
     report = {
         "mechanism_improved": (
             final["policy_failure_rate"] < baseline["policy_failure_rate"]
@@ -1294,6 +1401,15 @@ def run_batch_experiment(args: argparse.Namespace) -> tuple[Path, dict[str, Any]
             },
         ),
         "run_directory": str(run_dir),
+        "candidate_curation_gate": {
+            "enabled": bool(
+                config.get(
+                    "candidate_curation_gate_enabled",
+                    False,
+                )
+            ),
+            "decision_counts": gate_decision_counts,
+        },
         "profiles": {
             "tactic_types": _configured_tactics(config, profiles),
             **{
@@ -1351,6 +1467,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-ablation",
         action="store_true",
         help="skip the four final experiment arms during development",
+    )
+    parser.add_argument(
+        "--candidate-curation-gate",
+        action="store_true",
+        help=(
+            "enable the Candidate Curation Gate after empirical "
+            "verification and before Constraint Bank insertion"
+        ),
     )
     parser.add_argument(
         "--output-root", type=Path, default=root / "outputs/agenticpay_v2_batch"
