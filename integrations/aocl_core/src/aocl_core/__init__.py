@@ -1,6 +1,12 @@
 """Environment-independent Adaptive Organizational Control Layer."""
 
 from .audit import AuditEvent, InMemoryAuditSink, JsonlAuditSink
+from .candidate_curation_gate import (
+    CandidateCurationGate,
+    CandidateCurationResult,
+    CurationGateError,
+    GateDecision,
+)
 from .contracts import (
     CheckLevel,
     CheckResult,
@@ -25,6 +31,9 @@ from .runtime import IntegrationOCLRuntime
 
 __all__ = [
     "AuditEvent",
+    "CandidateCurationGate",
+    "CandidateCurationResult",
+    "CurationGateError",
     "CheckLevel",
     "CheckResult",
     "ConstraintResponse",
@@ -36,6 +45,7 @@ __all__ = [
     "DeterministicLexicalRetriever",
     "FrozenConstraintLibrary",
     "FrozenConstraintBank",
+    "GateDecision",
     "InMemoryAuditSink",
     "IntegrationOCLRuntime",
     "JsonlAuditSink",
