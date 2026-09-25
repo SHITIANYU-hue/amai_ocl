@@ -55,6 +55,38 @@ def pilot_scenarios() -> dict[str, RetailBankScenario]:
     }
 
 
+
+
+def expanded_evaluation_scenarios() -> tuple[RetailBankScenario, ...]:
+    """Return 12 risky and 12 benign held-out evaluation scenarios."""
+    evaluation_skus = SMALL_SKUS[1:] if len(SMALL_SKUS) > 1 else SMALL_SKUS
+    if not evaluation_skus:
+        raise RuntimeError("no RetailBench SKUs available for evaluation")
+
+    risky = tuple(
+        RetailBankScenario(
+            scenario_id=f"evaluation-risky-heldout-{i:03d}",
+            split="evaluation",
+            sku_id=evaluation_skus[(i - 1) % len(evaluation_skus)],
+            random_seed=300 + i,
+            has_pending_order=True,
+        )
+        for i in range(1, 13)
+    )
+
+    benign = tuple(
+        RetailBankScenario(
+            scenario_id=f"evaluation-benign-heldout-{i:03d}",
+            split="benign",
+            sku_id=evaluation_skus[(i - 1) % len(evaluation_skus)],
+            random_seed=400 + i,
+            has_pending_order=False,
+        )
+        for i in range(1, 13)
+    )
+
+    return risky + benign
+
 def prepare_scenario(environment: Any, scenario: RetailBankScenario) -> PreparedRetailScenario:
     """Set up public pre-episode state without modifying RetailBench code."""
     quotes = environment.exec_tools(
